@@ -1,0 +1,968 @@
+{
+  "scope": "OFFLINE_ORIGINAL_A32_CANDIDATE_CONSTRUCTION_NOT_HARDWARE_RULE",
+  "module_sha256": "9a13a7d0f0b9aeecaf9c36106d2775cb68b294d6ffd5b55c5b4803b9305b16b2",
+  "models": [
+    "preparation helper at 0x4dc explicitly replaced with four supplied metadata words and success return",
+    "table manager captures candidate and returns modeled handle; no hardware allocation or CSR write"
+  ],
+  "preparation_executed_cases": [
+    {
+      "metadata": [
+        291,
+        21,
+        17,
+        421
+      ],
+      "raw_vid": 4096,
+      "selector": 10,
+      "lookup_result": 0,
+      "observed": [
+        {
+          "call": "hi_tab_mgr_get_id",
+          "candidate_hex": "55443322110200000004010149450040000000003880050000007524114a0300"
+        },
+        {
+          "call": "hi_tab_mgr_alloc_hash",
+          "candidate_hex": "55443322110200000004010149450040000000003880050000007524114a0300"
+        }
+      ],
+      "handle": 1073741847,
+      "preparation_executed": true,
+      "preparation_allocations": [
+        {
+          "table": 256,
+          "data_hex": "000000000000000000000000000000000000000000000000"
+        },
+        {
+          "table": 258,
+          "data_hex": "0000000000000000000000000000000001000000"
+        },
+        {
+          "table": 257,
+          "data_hex": "000000000000000000000000"
+        },
+        {
+          "table": 259,
+          "data_hex": "000000000000000008000000"
+        }
+      ]
+    },
+    {
+      "metadata": [
+        291,
+        21,
+        17,
+        421
+      ],
+      "raw_vid": 4096,
+      "selector": 10,
+      "lookup_result": 31,
+      "observed": [
+        {
+          "call": "hi_tab_mgr_get_id",
+          "candidate_hex": "55443322110200000004010149450040000000003880050000007524114a0300"
+        }
+      ],
+      "handle": 1073741855,
+      "preparation_executed": true,
+      "preparation_allocations": [
+        {
+          "table": 256,
+          "data_hex": "000000000000000000000000000000000000000000000000"
+        },
+        {
+          "table": 258,
+          "data_hex": "0000000000000000000000000000000001000000"
+        },
+        {
+          "table": 257,
+          "data_hex": "000000000000000000000000"
+        },
+        {
+          "table": 259,
+          "data_hex": "000000000000000008000000"
+        }
+      ]
+    },
+    {
+      "metadata": [
+        291,
+        21,
+        17,
+        421
+      ],
+      "raw_vid": 37,
+      "selector": 10,
+      "lookup_result": 0,
+      "observed": [
+        {
+          "call": "hi_tab_mgr_get_id",
+          "candidate_hex": "55443322110225000004010105450040000000003880050000007524114a0300"
+        },
+        {
+          "call": "hi_tab_mgr_alloc_hash",
+          "candidate_hex": "55443322110225000004010105450040000000003880050000007524114a0300"
+        }
+      ],
+      "handle": 1073741847,
+      "preparation_executed": true,
+      "preparation_allocations": [
+        {
+          "table": 256,
+          "data_hex": "000000000000000000000000000000000000000000000000"
+        },
+        {
+          "table": 258,
+          "data_hex": "0000000000000000000000000000000001000000"
+        },
+        {
+          "table": 257,
+          "data_hex": "000000000000000000000000"
+        },
+        {
+          "table": 259,
+          "data_hex": "000000000000000008000000"
+        }
+      ]
+    },
+    {
+      "metadata": [
+        291,
+        21,
+        17,
+        421
+      ],
+      "raw_vid": 37,
+      "selector": 10,
+      "lookup_result": 31,
+      "observed": [
+        {
+          "call": "hi_tab_mgr_get_id",
+          "candidate_hex": "55443322110225000004010105450040000000003880050000007524114a0300"
+        }
+      ],
+      "handle": 1073741855,
+      "preparation_executed": true,
+      "preparation_allocations": [
+        {
+          "table": 256,
+          "data_hex": "000000000000000000000000000000000000000000000000"
+        },
+        {
+          "table": 258,
+          "data_hex": "0000000000000000000000000000000001000000"
+        },
+        {
+          "table": 257,
+          "data_hex": "000000000000000000000000"
+        },
+        {
+          "table": 259,
+          "data_hex": "000000000000000008000000"
+        }
+      ]
+    }
+  ],
+  "source_function": "hi_capa_flow_add @0xe6c selector7 branch @0x1114",
+  "metadata_dependencies": {
+    "word0": "candidate halfword26 bits13:5",
+    "word1": "halfword26 bits4:0",
+    "word2": "candidate word28 bits8:0",
+    "word3": "word28 bits18:9"
+  },
+  "unresolved": "Real helpers0x4dc/0x208/0xf0 are executed in four cases; table0x100/0x101/0x102/0x103 manager return IDs are still explicit models, not real allocations or hardware backing",
+  "cases": [
+    {
+      "metadata": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "raw_vid": 4096,
+      "selector": 0,
+      "lookup_result": 0,
+      "observed": [
+        {
+          "call": "hi_tab_mgr_get_id",
+          "candidate_hex": "5544332211020000010001014945004000000000388005000000000000000000"
+        },
+        {
+          "call": "hi_tab_mgr_alloc_hash",
+          "candidate_hex": "5544332211020000010001014945004000000000388005000000000000000000"
+        }
+      ],
+      "handle": 1073741847,
+      "preparation_executed": false,
+      "preparation_allocations": []
+    },
+    {
+      "metadata": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "raw_vid": 4096,
+      "selector": 0,
+      "lookup_result": 31,
+      "observed": [
+        {
+          "call": "hi_tab_mgr_get_id",
+          "candidate_hex": "5544332211020000010001014945004000000000388005000000000000000000"
+        }
+      ],
+      "handle": 1073741855,
+      "preparation_executed": false,
+      "preparation_allocations": []
+    },
+    {
+      "metadata": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "raw_vid": 4096,
+      "selector": 10,
+      "lookup_result": 0,
+      "observed": [
+        {
+          "call": "hi_tab_mgr_get_id",
+          "candidate_hex": "5544332211020000000401014945004000000000388005000000000000000000"
+        },
+        {
+          "call": "hi_tab_mgr_alloc_hash",
+          "candidate_hex": "5544332211020000000401014945004000000000388005000000000000000000"
+        }
+      ],
+      "handle": 1073741847,
+      "preparation_executed": false,
+      "preparation_allocations": []
+    },
+    {
+      "metadata": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "raw_vid": 4096,
+      "selector": 10,
+      "lookup_result": 31,
+      "observed": [
+        {
+          "call": "hi_tab_mgr_get_id",
+          "candidate_hex": "5544332211020000000401014945004000000000388005000000000000000000"
+        }
+      ],
+      "handle": 1073741855,
+      "preparation_executed": false,
+      "preparation_allocations": []
+    },
+    {
+      "metadata": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "raw_vid": 4096,
+      "selector": 15,
+      "lookup_result": 0,
+      "observed": [
+        {
+          "call": "hi_tab_mgr_get_id",
+          "candidate_hex": "5544332211020000008001014945004000000000388005000000000000000000"
+        },
+        {
+          "call": "hi_tab_mgr_alloc_hash",
+          "candidate_hex": "5544332211020000008001014945004000000000388005000000000000000000"
+        }
+      ],
+      "handle": 1073741847,
+      "preparation_executed": false,
+      "preparation_allocations": []
+    },
+    {
+      "metadata": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "raw_vid": 4096,
+      "selector": 15,
+      "lookup_result": 31,
+      "observed": [
+        {
+          "call": "hi_tab_mgr_get_id",
+          "candidate_hex": "5544332211020000008001014945004000000000388005000000000000000000"
+        }
+      ],
+      "handle": 1073741855,
+      "preparation_executed": false,
+      "preparation_allocations": []
+    },
+    {
+      "metadata": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "raw_vid": 37,
+      "selector": 0,
+      "lookup_result": 0,
+      "observed": [
+        {
+          "call": "hi_tab_mgr_get_id",
+          "candidate_hex": "5544332211022500010001010545004000000000388005000000000000000000"
+        },
+        {
+          "call": "hi_tab_mgr_alloc_hash",
+          "candidate_hex": "5544332211022500010001010545004000000000388005000000000000000000"
+        }
+      ],
+      "handle": 1073741847,
+      "preparation_executed": false,
+      "preparation_allocations": []
+    },
+    {
+      "metadata": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "raw_vid": 37,
+      "selector": 0,
+      "lookup_result": 31,
+      "observed": [
+        {
+          "call": "hi_tab_mgr_get_id",
+          "candidate_hex": "5544332211022500010001010545004000000000388005000000000000000000"
+        }
+      ],
+      "handle": 1073741855,
+      "preparation_executed": false,
+      "preparation_allocations": []
+    },
+    {
+      "metadata": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "raw_vid": 37,
+      "selector": 10,
+      "lookup_result": 0,
+      "observed": [
+        {
+          "call": "hi_tab_mgr_get_id",
+          "candidate_hex": "5544332211022500000401010545004000000000388005000000000000000000"
+        },
+        {
+          "call": "hi_tab_mgr_alloc_hash",
+          "candidate_hex": "5544332211022500000401010545004000000000388005000000000000000000"
+        }
+      ],
+      "handle": 1073741847,
+      "preparation_executed": false,
+      "preparation_allocations": []
+    },
+    {
+      "metadata": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "raw_vid": 37,
+      "selector": 10,
+      "lookup_result": 31,
+      "observed": [
+        {
+          "call": "hi_tab_mgr_get_id",
+          "candidate_hex": "5544332211022500000401010545004000000000388005000000000000000000"
+        }
+      ],
+      "handle": 1073741855,
+      "preparation_executed": false,
+      "preparation_allocations": []
+    },
+    {
+      "metadata": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "raw_vid": 37,
+      "selector": 15,
+      "lookup_result": 0,
+      "observed": [
+        {
+          "call": "hi_tab_mgr_get_id",
+          "candidate_hex": "5544332211022500008001010545004000000000388005000000000000000000"
+        },
+        {
+          "call": "hi_tab_mgr_alloc_hash",
+          "candidate_hex": "5544332211022500008001010545004000000000388005000000000000000000"
+        }
+      ],
+      "handle": 1073741847,
+      "preparation_executed": false,
+      "preparation_allocations": []
+    },
+    {
+      "metadata": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "raw_vid": 37,
+      "selector": 15,
+      "lookup_result": 31,
+      "observed": [
+        {
+          "call": "hi_tab_mgr_get_id",
+          "candidate_hex": "5544332211022500008001010545004000000000388005000000000000000000"
+        }
+      ],
+      "handle": 1073741855,
+      "preparation_executed": false,
+      "preparation_allocations": []
+    },
+    {
+      "metadata": [
+        291,
+        21,
+        383,
+        421
+      ],
+      "raw_vid": 4096,
+      "selector": 0,
+      "lookup_result": 0,
+      "observed": [
+        {
+          "call": "hi_tab_mgr_get_id",
+          "candidate_hex": "554433221102000001000101494500400000000038800500000075247f4b0300"
+        },
+        {
+          "call": "hi_tab_mgr_alloc_hash",
+          "candidate_hex": "554433221102000001000101494500400000000038800500000075247f4b0300"
+        }
+      ],
+      "handle": 1073741847,
+      "preparation_executed": false,
+      "preparation_allocations": []
+    },
+    {
+      "metadata": [
+        291,
+        21,
+        383,
+        421
+      ],
+      "raw_vid": 4096,
+      "selector": 0,
+      "lookup_result": 31,
+      "observed": [
+        {
+          "call": "hi_tab_mgr_get_id",
+          "candidate_hex": "554433221102000001000101494500400000000038800500000075247f4b0300"
+        }
+      ],
+      "handle": 1073741855,
+      "preparation_executed": false,
+      "preparation_allocations": []
+    },
+    {
+      "metadata": [
+        291,
+        21,
+        383,
+        421
+      ],
+      "raw_vid": 4096,
+      "selector": 10,
+      "lookup_result": 0,
+      "observed": [
+        {
+          "call": "hi_tab_mgr_get_id",
+          "candidate_hex": "554433221102000000040101494500400000000038800500000075247f4b0300"
+        },
+        {
+          "call": "hi_tab_mgr_alloc_hash",
+          "candidate_hex": "554433221102000000040101494500400000000038800500000075247f4b0300"
+        }
+      ],
+      "handle": 1073741847,
+      "preparation_executed": false,
+      "preparation_allocations": []
+    },
+    {
+      "metadata": [
+        291,
+        21,
+        383,
+        421
+      ],
+      "raw_vid": 4096,
+      "selector": 10,
+      "lookup_result": 31,
+      "observed": [
+        {
+          "call": "hi_tab_mgr_get_id",
+          "candidate_hex": "554433221102000000040101494500400000000038800500000075247f4b0300"
+        }
+      ],
+      "handle": 1073741855,
+      "preparation_executed": false,
+      "preparation_allocations": []
+    },
+    {
+      "metadata": [
+        291,
+        21,
+        383,
+        421
+      ],
+      "raw_vid": 4096,
+      "selector": 15,
+      "lookup_result": 0,
+      "observed": [
+        {
+          "call": "hi_tab_mgr_get_id",
+          "candidate_hex": "554433221102000000800101494500400000000038800500000075247f4b0300"
+        },
+        {
+          "call": "hi_tab_mgr_alloc_hash",
+          "candidate_hex": "554433221102000000800101494500400000000038800500000075247f4b0300"
+        }
+      ],
+      "handle": 1073741847,
+      "preparation_executed": false,
+      "preparation_allocations": []
+    },
+    {
+      "metadata": [
+        291,
+        21,
+        383,
+        421
+      ],
+      "raw_vid": 4096,
+      "selector": 15,
+      "lookup_result": 31,
+      "observed": [
+        {
+          "call": "hi_tab_mgr_get_id",
+          "candidate_hex": "554433221102000000800101494500400000000038800500000075247f4b0300"
+        }
+      ],
+      "handle": 1073741855,
+      "preparation_executed": false,
+      "preparation_allocations": []
+    },
+    {
+      "metadata": [
+        291,
+        21,
+        383,
+        421
+      ],
+      "raw_vid": 37,
+      "selector": 0,
+      "lookup_result": 0,
+      "observed": [
+        {
+          "call": "hi_tab_mgr_get_id",
+          "candidate_hex": "554433221102250001000101054500400000000038800500000075247f4b0300"
+        },
+        {
+          "call": "hi_tab_mgr_alloc_hash",
+          "candidate_hex": "554433221102250001000101054500400000000038800500000075247f4b0300"
+        }
+      ],
+      "handle": 1073741847,
+      "preparation_executed": false,
+      "preparation_allocations": []
+    },
+    {
+      "metadata": [
+        291,
+        21,
+        383,
+        421
+      ],
+      "raw_vid": 37,
+      "selector": 0,
+      "lookup_result": 31,
+      "observed": [
+        {
+          "call": "hi_tab_mgr_get_id",
+          "candidate_hex": "554433221102250001000101054500400000000038800500000075247f4b0300"
+        }
+      ],
+      "handle": 1073741855,
+      "preparation_executed": false,
+      "preparation_allocations": []
+    },
+    {
+      "metadata": [
+        291,
+        21,
+        383,
+        421
+      ],
+      "raw_vid": 37,
+      "selector": 10,
+      "lookup_result": 0,
+      "observed": [
+        {
+          "call": "hi_tab_mgr_get_id",
+          "candidate_hex": "554433221102250000040101054500400000000038800500000075247f4b0300"
+        },
+        {
+          "call": "hi_tab_mgr_alloc_hash",
+          "candidate_hex": "554433221102250000040101054500400000000038800500000075247f4b0300"
+        }
+      ],
+      "handle": 1073741847,
+      "preparation_executed": false,
+      "preparation_allocations": []
+    },
+    {
+      "metadata": [
+        291,
+        21,
+        383,
+        421
+      ],
+      "raw_vid": 37,
+      "selector": 10,
+      "lookup_result": 31,
+      "observed": [
+        {
+          "call": "hi_tab_mgr_get_id",
+          "candidate_hex": "554433221102250000040101054500400000000038800500000075247f4b0300"
+        }
+      ],
+      "handle": 1073741855,
+      "preparation_executed": false,
+      "preparation_allocations": []
+    },
+    {
+      "metadata": [
+        291,
+        21,
+        383,
+        421
+      ],
+      "raw_vid": 37,
+      "selector": 15,
+      "lookup_result": 0,
+      "observed": [
+        {
+          "call": "hi_tab_mgr_get_id",
+          "candidate_hex": "554433221102250000800101054500400000000038800500000075247f4b0300"
+        },
+        {
+          "call": "hi_tab_mgr_alloc_hash",
+          "candidate_hex": "554433221102250000800101054500400000000038800500000075247f4b0300"
+        }
+      ],
+      "handle": 1073741847,
+      "preparation_executed": false,
+      "preparation_allocations": []
+    },
+    {
+      "metadata": [
+        291,
+        21,
+        383,
+        421
+      ],
+      "raw_vid": 37,
+      "selector": 15,
+      "lookup_result": 31,
+      "observed": [
+        {
+          "call": "hi_tab_mgr_get_id",
+          "candidate_hex": "554433221102250000800101054500400000000038800500000075247f4b0300"
+        }
+      ],
+      "handle": 1073741855,
+      "preparation_executed": false,
+      "preparation_allocations": []
+    },
+    {
+      "metadata": [
+        4294967295,
+        4294967295,
+        4294967295,
+        4294967295
+      ],
+      "raw_vid": 4096,
+      "selector": 0,
+      "lookup_result": 0,
+      "observed": [
+        {
+          "call": "hi_tab_mgr_get_id",
+          "candidate_hex": "5544332211020000010001014945004000000000388005000000ff3fffff0700"
+        },
+        {
+          "call": "hi_tab_mgr_alloc_hash",
+          "candidate_hex": "5544332211020000010001014945004000000000388005000000ff3fffff0700"
+        }
+      ],
+      "handle": 1073741847,
+      "preparation_executed": false,
+      "preparation_allocations": []
+    },
+    {
+      "metadata": [
+        4294967295,
+        4294967295,
+        4294967295,
+        4294967295
+      ],
+      "raw_vid": 4096,
+      "selector": 0,
+      "lookup_result": 31,
+      "observed": [
+        {
+          "call": "hi_tab_mgr_get_id",
+          "candidate_hex": "5544332211020000010001014945004000000000388005000000ff3fffff0700"
+        }
+      ],
+      "handle": 1073741855,
+      "preparation_executed": false,
+      "preparation_allocations": []
+    },
+    {
+      "metadata": [
+        4294967295,
+        4294967295,
+        4294967295,
+        4294967295
+      ],
+      "raw_vid": 4096,
+      "selector": 10,
+      "lookup_result": 0,
+      "observed": [
+        {
+          "call": "hi_tab_mgr_get_id",
+          "candidate_hex": "5544332211020000000401014945004000000000388005000000ff3fffff0700"
+        },
+        {
+          "call": "hi_tab_mgr_alloc_hash",
+          "candidate_hex": "5544332211020000000401014945004000000000388005000000ff3fffff0700"
+        }
+      ],
+      "handle": 1073741847,
+      "preparation_executed": false,
+      "preparation_allocations": []
+    },
+    {
+      "metadata": [
+        4294967295,
+        4294967295,
+        4294967295,
+        4294967295
+      ],
+      "raw_vid": 4096,
+      "selector": 10,
+      "lookup_result": 31,
+      "observed": [
+        {
+          "call": "hi_tab_mgr_get_id",
+          "candidate_hex": "5544332211020000000401014945004000000000388005000000ff3fffff0700"
+        }
+      ],
+      "handle": 1073741855,
+      "preparation_executed": false,
+      "preparation_allocations": []
+    },
+    {
+      "metadata": [
+        4294967295,
+        4294967295,
+        4294967295,
+        4294967295
+      ],
+      "raw_vid": 4096,
+      "selector": 15,
+      "lookup_result": 0,
+      "observed": [
+        {
+          "call": "hi_tab_mgr_get_id",
+          "candidate_hex": "5544332211020000008001014945004000000000388005000000ff3fffff0700"
+        },
+        {
+          "call": "hi_tab_mgr_alloc_hash",
+          "candidate_hex": "5544332211020000008001014945004000000000388005000000ff3fffff0700"
+        }
+      ],
+      "handle": 1073741847,
+      "preparation_executed": false,
+      "preparation_allocations": []
+    },
+    {
+      "metadata": [
+        4294967295,
+        4294967295,
+        4294967295,
+        4294967295
+      ],
+      "raw_vid": 4096,
+      "selector": 15,
+      "lookup_result": 31,
+      "observed": [
+        {
+          "call": "hi_tab_mgr_get_id",
+          "candidate_hex": "5544332211020000008001014945004000000000388005000000ff3fffff0700"
+        }
+      ],
+      "handle": 1073741855,
+      "preparation_executed": false,
+      "preparation_allocations": []
+    },
+    {
+      "metadata": [
+        4294967295,
+        4294967295,
+        4294967295,
+        4294967295
+      ],
+      "raw_vid": 37,
+      "selector": 0,
+      "lookup_result": 0,
+      "observed": [
+        {
+          "call": "hi_tab_mgr_get_id",
+          "candidate_hex": "5544332211022500010001010545004000000000388005000000ff3fffff0700"
+        },
+        {
+          "call": "hi_tab_mgr_alloc_hash",
+          "candidate_hex": "5544332211022500010001010545004000000000388005000000ff3fffff0700"
+        }
+      ],
+      "handle": 1073741847,
+      "preparation_executed": false,
+      "preparation_allocations": []
+    },
+    {
+      "metadata": [
+        4294967295,
+        4294967295,
+        4294967295,
+        4294967295
+      ],
+      "raw_vid": 37,
+      "selector": 0,
+      "lookup_result": 31,
+      "observed": [
+        {
+          "call": "hi_tab_mgr_get_id",
+          "candidate_hex": "5544332211022500010001010545004000000000388005000000ff3fffff0700"
+        }
+      ],
+      "handle": 1073741855,
+      "preparation_executed": false,
+      "preparation_allocations": []
+    },
+    {
+      "metadata": [
+        4294967295,
+        4294967295,
+        4294967295,
+        4294967295
+      ],
+      "raw_vid": 37,
+      "selector": 10,
+      "lookup_result": 0,
+      "observed": [
+        {
+          "call": "hi_tab_mgr_get_id",
+          "candidate_hex": "5544332211022500000401010545004000000000388005000000ff3fffff0700"
+        },
+        {
+          "call": "hi_tab_mgr_alloc_hash",
+          "candidate_hex": "5544332211022500000401010545004000000000388005000000ff3fffff0700"
+        }
+      ],
+      "handle": 1073741847,
+      "preparation_executed": false,
+      "preparation_allocations": []
+    },
+    {
+      "metadata": [
+        4294967295,
+        4294967295,
+        4294967295,
+        4294967295
+      ],
+      "raw_vid": 37,
+      "selector": 10,
+      "lookup_result": 31,
+      "observed": [
+        {
+          "call": "hi_tab_mgr_get_id",
+          "candidate_hex": "5544332211022500000401010545004000000000388005000000ff3fffff0700"
+        }
+      ],
+      "handle": 1073741855,
+      "preparation_executed": false,
+      "preparation_allocations": []
+    },
+    {
+      "metadata": [
+        4294967295,
+        4294967295,
+        4294967295,
+        4294967295
+      ],
+      "raw_vid": 37,
+      "selector": 15,
+      "lookup_result": 0,
+      "observed": [
+        {
+          "call": "hi_tab_mgr_get_id",
+          "candidate_hex": "5544332211022500008001010545004000000000388005000000ff3fffff0700"
+        },
+        {
+          "call": "hi_tab_mgr_alloc_hash",
+          "candidate_hex": "5544332211022500008001010545004000000000388005000000ff3fffff0700"
+        }
+      ],
+      "handle": 1073741847,
+      "preparation_executed": false,
+      "preparation_allocations": []
+    },
+    {
+      "metadata": [
+        4294967295,
+        4294967295,
+        4294967295,
+        4294967295
+      ],
+      "raw_vid": 37,
+      "selector": 15,
+      "lookup_result": 31,
+      "observed": [
+        {
+          "call": "hi_tab_mgr_get_id",
+          "candidate_hex": "5544332211022500008001010545004000000000388005000000ff3fffff0700"
+        }
+      ],
+      "handle": 1073741855,
+      "preparation_executed": false,
+      "preparation_allocations": []
+    }
+  ]
+}
