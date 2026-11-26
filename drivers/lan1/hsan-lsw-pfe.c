@@ -309,6 +309,7 @@ struct hsan_pfe_state {
 	bool global_writes_attempted;
     bool global_writes_completed;
     bool lan1_opp_verified;
+    bool cpu_opp_verified;
     bool lan1_pub_verified;
     bool ifc_tag_verified;
     u32 pub_gro_entries;
@@ -669,6 +670,42 @@ int hsan_lsw_pfe_lifecycle_snapshot(struct hsan_pfe_lifecycle_snapshot *out)
     return 0;
 }
 EXPORT_SYMBOL_GPL(hsan_lsw_pfe_lifecycle_snapshot);
+
+/* Read-only OEM hi_pfe_tocpu_cnt plus PA/OPP/OFC path counters. */
+int hsan_lsw_pfe_cpu_counters(struct hsan_pfe_cpu_counters *out)
+{
+    static const u32 path[] = {
+        0x07001008, 0x0700100c, 0x06001000,
+        0x06001004, 0x04001000, 0x04001004,
+    };
+    struct hsan_pfe_state *p;
+    unsigned int i;
+    int ret = -ENODEV;
+
+    memset(out, 0, sizeof(*out));
+    mutex_lock(&hsan_pfe_owner_lock);
+    p = hsan_pfe_owner;
+    if (!p || !p->clock_on || p->probe_quarantined)
+        goto unlock;
+    ret = -EACCES;
+    if (!of_property_read_bool(p->owner->of_node,
+                              "hsan,experimental-read-pfe-oem-diagnostics"))
+        goto unlock;
+    for (i = 0; i < HSAN_PFE_TOCPU_REASON_COUNT; i++) {
+        ret = hsan_lsw_read(0x06045800 + i * 4, &out->reason[i]);
+        if (ret)
+            goto unlock;
+    }
+    for (i = 0; i < ARRAY_SIZE(path); i++) {
+        ret = hsan_lsw_read(path[i], &out->path[i]);
+        if (ret)
+            goto unlock;
+    }
+unlock:
+    mutex_unlock(&hsan_pfe_owner_lock);
+    return ret;
+}
+EXPORT_SYMBOL_GPL(hsan_lsw_pfe_cpu_counters);
 
 bool hsan_lsw_pfe_cpu_bootstrap_ready(void)
 {
@@ -2489,6 +2526,48 @@ static int hsan_pfe_lan1_opp(struct platform_device *pdev, bool submit)
 	return 0;
 }
 
+/* hi_pfe_opp_init @3338..3378: CPU virtual ports40..43,
+ * eight priorities and eight selector slots, 256 exact CSR words.
+ * Executed original A32 trace confirms qid129..160 and these addresses.
+ */
+static int hsan_pfe_cpu_opp(struct platform_device *pdev, bool submit)
+{
+    struct hsan_dp_queue_snapshot q[4];
+    unsigned int ch, priority, slot;
+    int ret;
+
+    if (!of_property_read_bool(pdev->dev.of_node,
+                              "hsan,experimental-program-cpu-opp"))
+        return 0;
+    if (!of_property_read_bool(pdev->dev.of_node,
+                              "hsan,experimental-ifc-cpu-path"))
+        return -EPERM;
+    for (ch = 0; ch < ARRAY_SIZE(q); ch++) {
+        ret = hsan_lsw_dp_get_queue(40 + ch, &q[ch]);
+        if (ret)
+            return ret;
+        if (!hsan_pfe_dp_lan1_handoff(&q[ch]) || q[ch].count != 8 ||
+            q[ch].qid != 129 + ch * 8)
+            return -ENODATA;
+    }
+    ret = hsan_lsw_check_span(0x06043800, 256 * sizeof(u32), true);
+    if (ret || !submit)
+        return ret;
+    for (ch = 0; ch < ARRAY_SIZE(q); ch++)
+        for (priority = 0; priority < 8; priority++)
+            for (slot = 0; slot < 8; slot++) {
+                u32 address = 0x06043800 + ch * 256 + priority * 32 + slot * 4;
+                u32 value = BIT(8) | (q[ch].qid + priority);
+
+                ret = hsan_lsw_write_verify(address, value);
+                if (ret)
+                    return ret;
+            }
+    dev_info(&pdev->dev,
+             "CPU OPP queue map verified: ports40..43 qid129..160, 256 words\n");
+    return 0;
+}
+
 /* OEM port_config_write @72e8 updates word0.bit16 (VLAN check)
  * and word1.bits13:12 (SMAC check). port_vlan_write @3998 sets
  * valid and the port membership bit at 0x0b040000 + VID * 4.
@@ -2586,6 +2665,14 @@ static int hsan_pfe_preflight_hw_plan(struct platform_device *pdev,
         if (!globals || !opp)
             return -EINVAL;
         ret = hsan_pfe_lan1_opp(pdev, false);
+        if (ret)
+            return ret;
+    }
+    if (of_property_read_bool(dev->of_node,
+                              "hsan,experimental-program-cpu-opp")) {
+        if (!globals || !opp || !cpu_ifc)
+            return -EINVAL;
+        ret = hsan_pfe_cpu_opp(pdev, false);
         if (ret)
             return ret;
     }
@@ -2840,6 +2927,11 @@ static int hsan_pfe_probe_locked(struct platform_device *pdev)
 		goto rollback;
     state->lan1_opp_verified = of_property_read_bool(pdev->dev.of_node,
                                   "hsan,experimental-program-lan1-opp");
+    ret = hsan_pfe_cpu_opp(pdev, true);
+    if (ret)
+        goto rollback;
+    state->cpu_opp_verified = of_property_read_bool(pdev->dev.of_node,
+                                  "hsan,experimental-program-cpu-opp");
 	ret = hsan_pfe_lan1_pub(pdev, true);
 	if (ret)
 		goto rollback;

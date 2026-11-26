@@ -175,6 +175,7 @@ def build(base_payload, artifacts, helper, diagnostic, output, fam_shadow=False,
         edits["/lsw_dp"]["hsan,experimental-enable-ips-before-fam"] = b""
         edits["/lsw_pfe"]["hsan,experimental-program-ofc-control"] = b""
         edits["/lsw_pfe"]["hsan,experimental-program-pa-prelude"] = b""
+        edits["/lsw_pfe"]["hsan,experimental-program-cpu-opp"] = b""
         edits["/pie@12080000"].update({
             "hsan,experimental-dma-enable": b"",
             "hsan,experimental-cpu-lan1-diagnostic": b"",
@@ -314,6 +315,7 @@ def build(base_payload, artifacts, helper, diagnostic, output, fam_shadow=False,
     pair["cpu_ifc_requested"] = cpu_ifc
     pair["cpu_lan1_diagnostic_requested"] = cpu_diagnostic
     pair["pie_global_init_requested"] = cpu_diagnostic
+    pair["cpu_opp_requested"] = cpu_diagnostic
     pair["noncoherent_dma_requested"] = noncoherent_dma
     if ifc_profile:
         pair["ifc_profile"] = ifc_profile

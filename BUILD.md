@@ -68,7 +68,7 @@ python3 -m venv .venv
 
 ## 只读实板计数器采样
 
-`tools/ram-boot/lan1-ethtool-read.c` 为 freestanding ARMEL helper，仅使用标准 SIOCETHTOOL 查询354项驱动计数器，不读写用户态MMIO，不up/down或重新加载模块
+`tools/ram-boot/lan1-ethtool-read.c` 为 freestanding ARMEL helper，仅使用标准 SIOCETHTOOL 查询499项驱动计数器，不读写用户态MMIO，不up/down或重新加载模块
 
 ```sh
 clang --target=arm-linux-gnueabi -march=armv5te -marm -O2 \

@@ -1,0 +1,22 @@
+{
+  "scope": "OFFLINE_ORIGINAL_A32_TRACE_NOT_BOARD_ACCEPTANCE",
+  "oem_sha256": "7591ef5077c540b40f60b4bd5b30620775ab025c4389e353f0f5a1e261e1804e",
+  "trace_sha256": "d93c3162f9da422a57d113b74bae3f201eb0dff5f0d4e9c6a79dcd89aa39d269",
+  "ports": [
+    40,
+    41,
+    42,
+    43
+  ],
+  "qids": [
+    129,
+    137,
+    145,
+    153
+  ],
+  "words": 256,
+  "base": "0x06043800",
+  "end_exclusive": "0x06043c00",
+  "source_function": "hi_pfe_opp_init@0x3070; CPU map@0x3338..0x3378",
+  "exact_trace_match": true
+}
