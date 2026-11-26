@@ -183,6 +183,7 @@ struct hsan_v300 {
     u32 stop_rx_irq_pending_channels;
 	bool initialized;
     bool phy_connected;
+    atomic_t link_reconfiguring;
 	bool active;
 	bool dma_ever_started;
 	bool hardware_quiesced;
@@ -1781,11 +1782,7 @@ static void hsan_watchdog(struct work_struct *w)
      * the sole carrier-on path; otherwise the periodic watchdog could
      * incorrectly override its failed MAC validation and submit DMA.
      */
-    if (!hsan_phy3_link(p)) {
-        netif_carrier_off(p->ndev);
-    } else {
-        hsan_adjust_link(p->ndev);
-    }
+    hsan_adjust_link(p->ndev);
 
     /* Stage60: the watchdog must not release tx_lock before reading
      * PIE pointers. ndo_stop can set active=false and disable RX
@@ -2913,10 +2910,15 @@ static void hsan_adjust_link(struct net_device *ndev)
 
     int mac_ret, link_ret;
 
+    if (atomic_read(&p->link_reconfiguring)) {
+        netif_carrier_off(ndev);
+        return;
+    }
+
     /* Read independently established PHY and MAC state outside the
      * spinlock; the MDIO accessor sleeps. Link loss is transient, but a
-     * resolved, LINK-UP speed/duplex/pause change cannot be handled by
-     * this one-shot OEM GEMAC programming sequence. Quarantine DMA.
+     * resolved mode changes reuse the original MAC configuration sequence.
+     * Keep carrier off during the update; no host DMA ownership changes.
      */
     mac_ret = hsan_gemac_lan1_snapshot(&mac);
     link_ret = hsan_gemac_lan1_link_snapshot(&link);
@@ -2931,23 +2933,25 @@ static void hsan_adjust_link(struct net_device *ndev)
     }
     if (READ_ONCE(p->active) && phy && phy->link && !mac_ret &&
         !link_ret && mac.mac_link_programmed && link.link_up &&
-        link.resolved &&
-        (mac.link_register_drift_latched ||
-         link.speed_mbps != mac.programmed_speed_mbps ||
+        link.resolved && phy->speed == link.speed_mbps &&
+        (phy->duplex == DUPLEX_FULL) == link.full_duplex &&
+        (link.speed_mbps != mac.programmed_speed_mbps ||
          link.full_duplex != mac.programmed_full_duplex ||
          link.rx_pause != mac.programmed_rx_pause ||
          link.tx_pause != mac.programmed_tx_pause)) {
-        spin_lock_irqsave(&p->tx_lock, flags);
-        if (READ_ONCE(p->active) &&
-            !test_bit(HSAN_FAULT_DATAPATH, &p->fault_flags)) {
-            p->link_mode_drift_faults++;
-            hsan_quarantine_datapath_locked(p,
-                HSAN_DMA_FAULT_LINK_MODE_DRIFT,
-                "PHY3 renegotiated beyond immutable GEMAC register mode");
+        int configured;
+
+        if (atomic_cmpxchg(&p->link_reconfiguring, 0, 1)) {
+            netif_carrier_off(ndev);
+            return;
         }
-        spin_unlock_irqrestore(&p->tx_lock, flags);
         netif_carrier_off(ndev);
-        return;
+        configured = hsan_gemac_lan1_program_link();
+        atomic_set(&p->link_reconfiguring, 0);
+        if (configured)
+            return;
+        mac_ret = hsan_gemac_lan1_snapshot(&mac);
+        link_ret = hsan_gemac_lan1_link_snapshot(&link);
     }
     if (!READ_ONCE(p->active) || !phy || !phy->link ||
         mac_ret || !mac.mac_link_programmed || mac.link_hw_uncertain ||
@@ -2968,6 +2972,7 @@ static void hsan_adjust_link(struct net_device *ndev)
      */
     spin_lock_irqsave(&p->tx_lock, flags);
     if (READ_ONCE(p->active) && p->phy_connected && phy->link &&
+        !atomic_read(&p->link_reconfiguring) &&
         !hsan_lsw_dp_fam_cpu_fenced() &&
         !test_bit(HSAN_FAULT_DATAPATH, &p->fault_flags))
         netif_carrier_on(ndev);
@@ -5279,6 +5284,7 @@ static int hsan_probe(struct platform_device *pdev)
     if (ret)
         goto err_free;
     spin_lock_init(&p->tx_lock);
+    atomic_set(&p->link_reconfiguring, 0);
     INIT_DELAYED_WORK(&p->watchdog, hsan_watchdog);
     ret = hsan_collect_rx_irqs(pdev, irq_count != 0, irqs);
     if (ret)

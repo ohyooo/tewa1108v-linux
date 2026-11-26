@@ -390,6 +390,20 @@ static int hsan_gemac_lan1_link_sample(struct hsan_gemac_link_snapshot *snapshot
         snapshot->rx_pause = !!(flow & FLOW_CTRL_RX);
         snapshot->tx_pause = !!(flow & FLOW_CTRL_TX);
     }
+    /* Negotiation may restart while the individual MDIO reads sleep */
+    ret = phy_read(phy, MII_BMSR);
+    if (ret < 0)
+        goto put_phy;
+    if (ret == 0xffff) {
+        ret = -ENODATA;
+        goto put_phy;
+    }
+    if ((ret & (BMSR_LSTATUS | BMSR_ANEGCOMPLETE)) !=
+        (BMSR_LSTATUS | BMSR_ANEGCOMPLETE)) {
+        ret = -EAGAIN;
+        goto put_phy;
+    }
+    ret = 0;
     snapshot->resolved = true;
 put_phy:
 	put_device(&phy->mdio.dev);
@@ -436,9 +450,9 @@ EXPORT_SYMBOL_GPL(hsan_gemac_lan1_get_phy);
  * hi_mac_hw_set_pause (.text+0x1bc) writes +0x100 bits 29/28.
  *
  * All registers are inside the verified GEMAC MMIO resource. Programming
- * is an explicitly opted-in, ONE-SHOT act: there is no demonstrated
- * 5.10->7.3 hot renegotiation/reset or PHY power sequencing yet.
- * This is not a replacement for a fully integrated phylink state machine.
+ * remains explicitly opted in. A resolved PHY mode change reuses this
+ * sequence under the MAC owner lock without resetting PIE or changing
+ * DMA mappings. Unexpected register drift still requires a board reset.
  */
 int hsan_gemac_lan1_program_link(void)
 {
@@ -472,8 +486,9 @@ int hsan_gemac_lan1_program_link(void)
         ret = -EACCES;
         goto out;
     }
-    if (mac->link_program_attempted) {
-        ret = -EALREADY;
+    if (mac->link_program_attempted &&
+        (!mac->link_programmed || mac->link_hw_uncertain)) {
+        ret = -EUCLEAN;
         goto out;
     }
     if (!(readl(mac->gate) & HSAN_MAC_GATE_BIT)) {
@@ -484,6 +499,30 @@ int hsan_gemac_lan1_program_link(void)
     if ((reg100 & HSAN_MAC_MTU_MASK) != HSAN_GEMAC_LAN1_FRAME_LIMIT) {
         ret = -EMSGSIZE;
         goto out;
+    }
+    if (mac->link_programmed) {
+        u32 old_mode = (mac->link_speed_mbps == 1000 ? 2U :
+                       (mac->link_speed_mbps == 100 ? 1U : 0U)) |
+                      (mac->link_full_duplex ? BIT(2) : 0U);
+        u32 old_pause = (mac->link_rx_pause ? BIT(29) : 0U) |
+                       (mac->link_tx_pause ? BIT(28) : 0U);
+
+        if (readl(mac->regs + 0x14) != old_mode ||
+            (reg100 & HSAN_MAC_PAUSE_MASK) != old_pause ||
+            (readl(mac->regs + 0x40) & (BIT(24) | GENMASK(15, 8))) != BIT(24) ||
+            readl(mac->regs + 0x48) != 0) {
+            mac->link_hw_uncertain = true;
+            mac->link_register_drift_latched = true;
+            ret = -EUCLEAN;
+            goto out;
+        }
+        if (link.speed_mbps == mac->link_speed_mbps &&
+            link.full_duplex == mac->link_full_duplex &&
+            link.rx_pause == mac->link_rx_pause &&
+            link.tx_pause == mac->link_tx_pause) {
+            ret = 0;
+            goto out;
+        }
     }
     reg40 = readl(mac->regs + 0x40);
     silent_before = readl(mac->regs + 0x48);
@@ -537,16 +576,21 @@ int hsan_gemac_lan1_program_link(void)
     mac->link_full_duplex = link.full_duplex;
     mac->link_rx_pause = link.rx_pause;
     mac->link_tx_pause = link.tx_pause;
-    /* Do NOT publish link_programmed until a second, independently
-     * sampled PHY state agrees. Otherwise PHYLIB can briefly bring
-     * carrier up between register readback and the second MDIO sample.
+    /* Register readback establishes the programmed mode. PHY resolution
+     * can change independently; the netdev keeps carrier off until its
+     * PHYLIB and Clause-22 observations agree with this image.
+     * Publish under the owner lock so readers never see a partial update.
      */
+    mac->link_hw_uncertain = false;
+    mac->link_programmed = true;
+    dev_info(mac->dev, "OEM GEMAC link configured: %uMbps %s-duplex, pause RX=%d TX=%d\n",
+             link.speed_mbps, link.full_duplex ? "full" : "half",
+             link.rx_pause, link.tx_pause);
     ret = 0;
 out:
     mutex_unlock(&hsan_mac_owner_lock);
     if (!ret) {
         struct hsan_gemac_link_snapshot verify;
-        struct hsan_mac_lan1 *current_mac;
         u64 verified_generation;
         int sampled = hsan_gemac_lan1_link_sample(&verify, &verified_generation);
 
@@ -561,21 +605,7 @@ out:
             verify.tx_pause != link.tx_pause)
             return -EAGAIN;
 
-        /* Reacquire the owner and reject replacement, including a devm
-         * allocation reused at exactly the same address.
-         */
-        mutex_lock(&hsan_mac_owner_lock);
-        current_mac = hsan_mac_owner;
-        if (!current_mac || hsan_mac_owner_generation != generation)
-            ret = -ENODEV;
-        else {
-            current_mac->link_hw_uncertain = false;
-            current_mac->link_programmed = true;
-            dev_warn(current_mac->dev, "OEM GEMAC link configured: %uMbps %s-duplex, pause RX=%d TX=%d; dynamic renegotiation still unqualified\n",
-                     link.speed_mbps, link.full_duplex ? "full" : "half",
-                     link.rx_pause, link.tx_pause);
-        }
-        mutex_unlock(&hsan_mac_owner_lock);
+
     }
     return ret;
 }
