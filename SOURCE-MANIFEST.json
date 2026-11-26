@@ -385,8 +385,8 @@
     },
     {
       "path": "tools/ram-boot/module-pins.json",
-      "bytes": 1258,
-      "sha256": "d4d688d27456267d913741e181bcc27ade6c50ca5a18ea6988f9c646a96d2bd1"
+      "bytes": 1216,
+      "sha256": "fcda39cf7b38aae27f8d2350de0359d119469ca0ee801b48607b17a5318f1abc"
     },
     {
       "path": "tools/ram-boot/oem_ifc_init_trace.json",
