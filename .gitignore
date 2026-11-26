@@ -9,3 +9,5 @@ __pycache__/
 /drivers/lan1/.*.cmd
 /drivers/lan1/Module.symvers
 /drivers/lan1/modules.order
+
+/work/

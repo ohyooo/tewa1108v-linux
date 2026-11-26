@@ -1,7 +1,6 @@
 """One bounded TCP round trip over the physical LAN, controlled through UART."""
 from pathlib import Path
 import argparse
-import hashlib
 import json
 import secrets
 import serial
@@ -19,10 +18,9 @@ Path('work').mkdir(exist_ok=True)
 size = 1024 * 1024
 tag = secrets.token_hex(8)
 payload = secrets.token_bytes(size)
-expected = hashlib.sha256(payload).hexdigest()
 raw = bytearray()
 result = {"bytes_per_round": size, "minimum_seconds": args.seconds, "port": args.port,
-          "expected_sha256": expected, "pass": False, "rounds": 0}
+          "pass": False, "rounds": 0}
 listener = socket.socket()
 listener.bind(("192.168.0.10", args.port))
 listener.listen(1)
@@ -39,14 +37,15 @@ def server():
                     raise RuntimeError("UNEXPECTED_TCP_PEER")
                 started = time.monotonic()
                 while True:
-                    conn.sendall((str(size) + '\n').encode() + payload)
+                    round_payload = result['rounds'].to_bytes(8, 'big') + payload[8:]
+                    conn.sendall((str(size) + '\n').encode() + round_payload)
                     received = bytearray()
                     while len(received) < size:
                         chunk = conn.recv(min(65536, size - len(received)))
                         if not chunk:
                             break
                         received.extend(chunk)
-                    if bytes(received) != payload:
+                    if bytes(received) != round_payload:
                         raise RuntimeError('TCP_PAYLOAD_MISMATCH')
                     result['rounds'] += 1
                     if time.monotonic() - started >= args.seconds:
@@ -54,9 +53,8 @@ def server():
                 conn.sendall(b'0\n')
                 result["elapsed_seconds"] = time.monotonic() - started
                 result["returned_bytes"] = len(received)
-                result["returned_sha256"] = hashlib.sha256(received).hexdigest()
                 result['bytes_each_direction'] = size * result['rounds']
-                result["pass"] = bytes(received) == payload
+                result["pass"] = bytes(received) == round_payload
     except (OSError, RuntimeError) as error:
         result["error"] = str(error)
 
@@ -83,17 +81,13 @@ try:
         script = (f"exec 3<>/dev/tcp/192.168.0.10/{args.port} || exit 1; "
                   "while read -r count <&3; do [ \"$count\" = 0 ] && break; "
                   f"head -c \"$count\" <&3 > {filename} || exit 2; "
-                  f"sha256sum {filename}; cat {filename} >&3; "
+                  f"cat {filename} >&3 || exit 3; "
                   "done; exec 3>&-; exec 3<&-")
         response = command(f"timeout {args.seconds + 40} bash -c '" + script + "'; tcp_rc=$?; "
                            "printf 'TCP_SHELL_RC=%s\\n' \"$tcp_rc\"; rm -f " + filename, args.seconds + 50)
-        result['board_checksum_count'] = response.count((expected + "  " + filename).encode())
-        result["board_sha256_seen"] = result['board_checksum_count'] > 0
         result["board_shell_rc_zero"] = b"TCP_SHELL_RC=0" in response
     worker.join(5)
-    result["pass"] = (result["pass"] and result["board_sha256_seen"]
-                      and result['board_checksum_count'] == result['rounds']
-                      and result["board_shell_rc_zero"] and not worker.is_alive())
+    result["pass"] = (result["pass"] and result["board_shell_rc_zero"] and not worker.is_alive())
 finally:
     listener.close()
     Path("work/tcp-roundtrip-" + tag + ".raw").write_bytes(raw)

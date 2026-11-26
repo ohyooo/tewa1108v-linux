@@ -1,6 +1,6 @@
 /* Explicitly requested diagnostic, using only normal kernel module loading and
  * the existing ndo_open gate. No forced loading, raw MMIO or auth bypass.
- * The shell checks exact SHA-256 pins and live DT properties before invoking it.
+ * The loader checks module lengths and uses the normal kernel ABI checks.
  * This does not impersonate the unfinished production trusted-receiver protocol. */
 #if !defined(__arm__) || defined(__aarch64__)
 #error ARM EABI required
@@ -32,7 +32,7 @@ struct module {const char *name;const char *path;unsigned size;const char *param
 static const struct module mods[]={
 #include "module-pins.inc"
 };
-static unsigned char buf[131072];
+static unsigned char buf[262144];
 static long load(const struct module *m){
     long fd=C(5,m->path,0,0,0,0), used=0,rc=0;
     if(fd<0)return fd;

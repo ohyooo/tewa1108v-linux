@@ -99,6 +99,7 @@
     "tools/ram-boot/fip_patches.py",
     "tools/ram-boot/lan1-ethtool-read.c",
     "tools/ram-boot/lan1-network-test.c",
+    "tools/ram-boot/lan1-udp-test.c",
     "tools/ram-boot/module-pins.inc",
     "tools/ram-boot/module-pins.json",
     "tools/ram-boot/oem_ifc_init_trace.json",
@@ -110,6 +111,8 @@
     "tools/ram-boot/reboot.c",
     "tools/ram-boot/test-lan-tcp.ps1",
     "tools/ram-boot/test-lan-tcp.py",
+    "tools/ram-boot/test-lan-udp.ps1",
+    "tools/ram-boot/test-lan-udp.py",
     "tools/ram-boot/tewa_image.py",
     "tools/ram-boot/trace_oem_ifc.py"
   ]

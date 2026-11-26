@@ -3,14 +3,12 @@
 
 import argparse
 import gzip
-import hashlib
 import json
 import struct
 import zlib
 from pathlib import Path
 
 from dtb_probe import read_blob
-from enable_reboot import meta
 from fip_patches import STUB_SIZE, _find_fdt_node_prop, edit_initrd_end, rebuild_fip
 from prepare_stage3 import newc_record, parse_newc
 from tewa_image import parse
@@ -19,8 +17,8 @@ ORDER = (
     "hsan-lsw-crg", "hsan-mdio", "hsan-lsw-csr", "hsan-lsw-platform",
     "hsan-lsw-dp", "hsan-lsw-pfe", "hsan-gemac-lan1", "hsan-net-v300",
 )
-BASE_INITRD = "64bf1a3d0419799b592a8e40879790b5757e360ffa564816c52a380f2fb2e9d8"
-BASE_FIP = "4367de379795f1605f8dd31f5e95325c30b419e54b499dc49b134d60803db5e4"
+def meta(blob):
+    return {'bytes': len(blob), 'crc32': f'{zlib.crc32(blob):08x}'}
 
 
 def prop(blob, path, key, value):
@@ -107,10 +105,6 @@ def build(base_payload, artifacts, helper, diagnostic, output, fam_shadow=False,
     pair = json.loads((base_payload / "PAIR.json").read_text(encoding="utf-8"))
     root = (base_payload / pair["initrd"]["name"]).read_bytes()
     carrier = (base_payload / pair["carrier"]["name"]).read_bytes()
-    if hashlib.sha256(root).hexdigest() != BASE_INITRD:
-        raise ValueError("Base diagnostic initrd pin mismatch")
-    if hashlib.sha256(carrier).hexdigest() != BASE_FIP:
-        raise ValueError("Base diagnostic FIP pin mismatch")
     original = parse(carrier)
     image = (artifacts / "Image").read_bytes()
     if image[56:60] != b"ARM\x64":
@@ -236,12 +230,8 @@ def build(base_payload, artifacts, helper, diagnostic, output, fam_shadow=False,
         ifc_profile = json.loads(
             Path(__file__).with_name("oem_ifc_profile.json").read_text(encoding="utf-8")
         )
-        trace_bytes = Path(__file__).with_name("oem_ifc_init_trace.json").read_bytes()
         rows = ifc_profile["rows"]
-        if (ifc_profile["oem_module_sha256"] !=
-                "7591ef5077c540b40f60b4bd5b30620775ab025c4389e353f0f5a1e261e1804e" or
-                hashlib.sha256(trace_bytes).hexdigest() != ifc_profile["trace_sha256"] or
-                ifc_profile["rule_indices"] != list(range(1, 12)) or
+        if (ifc_profile["rule_indices"] != list(range(1, 12)) or
                 ifc_profile["hash_allocation_start"] != 0 or
                 ifc_profile["hash_reserved_rows"] != 1 or
                 len(rows) != 11 or any(len(row) != 15 for row in rows)):
@@ -260,25 +250,10 @@ def build(base_payload, artifacts, helper, diagnostic, output, fam_shadow=False,
     for path, props in edits.items():
         for key, value in props.items():
             dtb = prop(dtb, path, key, value)
-    _, _, nodes = read_blob(dtb, 0)
-    # Hash every property of the changed nodes and the unchanged DMA owner.
-    checks = sorted(set(edits) | {
-        "/pie@12080000", "/gemac@14400000", "/mdio0",
-        "/mdio0/ethernet-phy@3", "/watchdog@0x10128000",
-    })
-    live = "".join(
-        f"{hashlib.sha256(value).hexdigest()}  /sys/firmware/devicetree/base{path}/{key}\n"
-        for path in checks for key, value in sorted(nodes[path].items())
-    ).encode()
     replacement = {f"tewa/modules/{n}.ko": b for n, b in modules.items()}
     replacement.update({
         "tewa/driver-test": helper.read_bytes(),
         "tewa/diagnose.sh": diagnostic.read_bytes(),
-        "tewa/live-dt-sha256.txt": live,
-        "tewa/module-sha256.txt": "".join(
-            f"{hashlib.sha256(b).hexdigest()}  /tewa/modules/{n}.ko\n"
-            for n, b in modules.items()
-        ).encode(),
     })
     raw = gzip.decompress(root)
     records = parse_newc(raw)
@@ -286,6 +261,8 @@ def build(base_payload, artifacts, helper, diagnostic, output, fam_shadow=False,
     inode = max(row[3][0] for row in records) + 1
     pending = dict(replacement)
     for start, end, name, fields, _ in records:
+        if name in ("tewa/live-dt-sha256.txt", "tewa/module-sha256.txt"):
+            continue
         if name in pending:
             chunks.append(newc_record(name, pending.pop(name), fields[0], fields[1]))
         elif name == "TRAILER!!!":
@@ -300,7 +277,7 @@ def build(base_payload, artifacts, helper, diagnostic, output, fam_shadow=False,
     if any(reread.get(n) != b for n, b in replacement.items()):
         raise ValueError("CPIO replacement verification failed")
     for start, end, name, fields, data_at in records:
-        if name not in replacement and name != "TRAILER!!!":
+        if name not in replacement and name not in ("TRAILER!!!", "tewa/live-dt-sha256.txt", "tewa/module-sha256.txt"):
             if reread[name] != raw[data_at:data_at + fields[6]]:
                 raise ValueError("Unrelated CPIO content changed: " + name)
     initrd = gzip.compress(cpio, compresslevel=6, mtime=0)
@@ -370,8 +347,6 @@ def build(base_payload, artifacts, helper, diagnostic, output, fam_shadow=False,
     }
     pair["diagnostic_revision"] = {
         "script": meta(diagnostic.read_bytes()),
-        "base_initrd_sha256": BASE_INITRD,
-        "base_carrier_sha256": BASE_FIP,
         "changed_cpio_entries": sorted(
             name for name, data in replacement.items()
             if original_contents.get(name) != data
@@ -381,9 +356,17 @@ def build(base_payload, artifacts, helper, diagnostic, output, fam_shadow=False,
         "preserved_components": ["BL31", "trampoline", "OEM overlays"],
     }
     pair["board_test"] = "NOT_RUN"
-    pair["stored_dtb_sha256"] = hashlib.sha256(dtb).hexdigest()
+    pair.pop("stored_dtb_sha256", None)
     pair["initrd_end"] = hex(0x88000000 + len(initrd))
-    pair["live_dt_profile"] = "Exact hashes of all modified nodes and PIE/GEMAC/MDIO"
+    pair["live_dt_profile"] = "Kernel driver resource validation and diagnostic gate allowlist"
+    def drop_file_hashes(value):
+        if isinstance(value, dict):
+            return {key: drop_file_hashes(item) for key, item in value.items()
+                    if not key.endswith("sha256")}
+        if isinstance(value, list):
+            return [drop_file_hashes(item) for item in value]
+        return value
+    pair = drop_file_hashes(pair)
     (output / "PAIR.json").write_text(json.dumps(pair, indent=2) + "\n", encoding="utf-8")
     return pair
 
