@@ -1,7 +1,7 @@
 {
   "scope": "OFFLINE_OEM_A32_EXECUTION_TRACE_NOT_BOARD_OBSERVATION",
   "oem_module_sha256": "7591ef5077c540b40f60b4bd5b30620775ab025c4389e353f0f5a1e261e1804e",
-  "trace_sha256": "a373aa3d537cd75b89d3b9d9ebd885f29755df17131d5ce62e297966dd3f8593",
+  "trace_sha256": "55cc3d8dd58cadac9b3e80a65a7b4e2f54601c4ae8ce2a12b93b8959abf93806",
   "hash_allocation_start": 0,
   "hash_reserved_rows": 1,
   "rule_indices": [
@@ -238,5 +238,6 @@
       0
     ]
   },
-  "allocator_callback": "OEM tag_write executed; allocator index selection modeled"
+  "allocator_callback": "OEM tag_write executed; allocator index selection modeled",
+  "original_working_trace_sha256": "a373aa3d537cd75b89d3b9d9ebd885f29755df17131d5ce62e297966dd3f8593"
 }

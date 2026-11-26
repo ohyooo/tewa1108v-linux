@@ -9,5 +9,6 @@
     "same_normalized_target": true
   },
   "published_source": "Pinned upstream archive, original symlink spelling preserved",
-  "adaptation": "External drivers, runtime device tree construction, and pinned kernel config"
+  "adaptation": "External drivers, runtime device tree construction, and pinned kernel config",
+  "archive_file_entries_including_duplicate_paths": 96081
 }

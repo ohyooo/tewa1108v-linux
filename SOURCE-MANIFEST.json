@@ -155,13 +155,13 @@
     },
     {
       "path": "kernel/source-audit.json",
-      "bytes": 648,
-      "sha256": "7852c490ffbbc1c473bfb1a05500dc6a3db2e5217b66252528e70fa91e9b72f0"
+      "bytes": 707,
+      "sha256": "9a00ce04ff263da50e10ecaf0e0b7c365be2ec46507cf07e11641ad807b4bb4b"
     },
     {
       "path": "README.md",
-      "bytes": 3050,
-      "sha256": "9a83a1737461b2cf441c5fbc11df9fc86e269deab9b699b9264387e173443bff"
+      "bytes": 3056,
+      "sha256": "0807481f306f5194daeaf6b22e25dbf40f2c53014da9aad250379b24ee0fdb5b"
     },
     {
       "path": "reverse/disassembly/oem-acp.dis",
@@ -230,8 +230,8 @@
     },
     {
       "path": "reverse/profiles/oem_ifc_profile.json",
-      "bytes": 2933,
-      "sha256": "a1a040f0a20012a0204f2112ca60d4d64db7e1d954967c4d5bc007e8781740b1"
+      "bytes": 3036,
+      "sha256": "5e7d11e512bbad87b44c7edc3ae82e8c22173cd07e7c7485c165c80d371562be"
     },
     {
       "path": "reverse/profiles/oem_queue_profile.json",
@@ -380,8 +380,8 @@
     },
     {
       "path": "tools/ram-boot/oem_ifc_profile.json",
-      "bytes": 2933,
-      "sha256": "a1a040f0a20012a0204f2112ca60d4d64db7e1d954967c4d5bc007e8781740b1"
+      "bytes": 3036,
+      "sha256": "5e7d11e512bbad87b44c7edc3ae82e8c22173cd07e7c7485c165c80d371562be"
     },
     {
       "path": "tools/ram-boot/oem_queue_profile.json",
