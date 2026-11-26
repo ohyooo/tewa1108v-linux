@@ -67,7 +67,7 @@ def build(base_payload, artifacts, helper, diagnostic, output, fam_shadow=False,
           boot_reset=False, arm_fam=False, eqm=False, queue_routing=False,
           pie_reset=False, pie_map=False, pfe_globals=False, pie_acp=False,
           pfe_opp=False, lan1_opp=False, lan1_pub=False, cpu_ifc=False,
-          cpu_diagnostic=False, noncoherent_dma=False, lan1_mirror_cpu=False, eqm_counters=False, rx0_large_buffer=False, opp_port33=False, opp_port4=False, retain_dma_on_down=False, napt_partition=False):
+          cpu_diagnostic=False, noncoherent_dma=False, lan1_mirror_cpu=False, eqm_counters=False, rx0_large_buffer=False, opp_port33=False, opp_port4=False, retain_dma_on_down=False, napt_partition=False, gro_resources=False):
     if arm_fam and not (fam_shadow and boot_reset):
         raise ValueError("FAM hardware init requires CPU staging and cold boot reset")
     if eqm and not arm_fam:
@@ -90,6 +90,8 @@ def build(base_payload, artifacts, helper, diagnostic, output, fam_shadow=False,
         raise ValueError("CPU IFC requires the LAN1 PUB and OPP hardware plans")
     if cpu_diagnostic and not (cpu_ifc and pie_acp):
         raise ValueError("CPU DMA diagnostic requires the complete IFC/OPP/PUB/ACP bootstrap")
+    if gro_resources and not napt_partition:
+        raise ValueError("GRO resource initialization requires NAPT partition")
     if napt_partition and not cpu_diagnostic:
         raise ValueError("NAPT partition requires CPU diagnostic mode")
     if retain_dma_on_down and not cpu_diagnostic:
@@ -210,6 +212,14 @@ def build(base_payload, artifacts, helper, diagnostic, output, fam_shadow=False,
             "hsan,observed-napt-table-rows": struct.pack(">2I", 33280, 33024),
             "hsan,observed-napt-partition-register-words": struct.pack(
                 ">5I", 0x99000000, 0x99010000, 0x991aa000, 0x991ba000, 0x10404),
+        })
+    if gro_resources:
+        edits["/lsw_pfe"].update({
+            "hsan,experimental-gro-resource-init": b"",
+            "hsan,experimental-commit-l3intf-row": b"",
+            "hsan,observed-l3intf-words": struct.pack(">6I", 1, 0, 0, 0, 0, 1),
+            "hsan,observed-l3intf-preimage-words": bytes(32),
+            "hsan,observed-gro-nhp-preimage-words": bytes(16),
         })
     if retain_dma_on_down:
         edits["/pie@12080000"]["hsan,experimental-retain-dma-on-down"] = b""
@@ -339,6 +349,7 @@ def build(base_payload, artifacts, helper, diagnostic, output, fam_shadow=False,
     pair["cpu_opp_requested"] = cpu_diagnostic
     pair["retained_dma_resume_requested"] = retain_dma_on_down
     pair["napt_partition_requested"] = napt_partition
+    pair["gro_resource_init_requested"] = gro_resources
     pair["port4_opp_requested"] = opp_port4
     pair["port33_opp_requested"] = opp_port33
     pair["rx0_large_buffer_requested"] = rx0_large_buffer
@@ -421,11 +432,12 @@ if __name__ == "__main__":
     parser.add_argument("--opp-port4", action="store_true")
     parser.add_argument("--retain-dma-on-down", action="store_true")
     parser.add_argument("--napt-partition", action="store_true")
+    parser.add_argument("--gro-resources", action="store_true")
     args = parser.parse_args()
     result = build(args.base_payload, args.artifacts, args.helper, args.diagnostic,
                    args.output, args.fam_shadow, args.boot_reset, args.arm_fam,
                    args.eqm, args.queue_routing, args.pie_reset, args.pie_map,
                    args.pfe_globals, args.pie_acp, args.pfe_opp, args.lan1_opp,
                    args.lan1_pub, args.cpu_ifc, args.cpu_diagnostic,
-                   args.noncoherent_dma, args.lan1_mirror_cpu, args.eqm_counters, args.rx0_large_buffer, args.opp_port33, args.opp_port4, args.retain_dma_on_down, args.napt_partition)
+                   args.noncoherent_dma, args.lan1_mirror_cpu, args.eqm_counters, args.rx0_large_buffer, args.opp_port33, args.opp_port4, args.retain_dma_on_down, args.napt_partition, args.gro_resources)
     print(json.dumps({k: result[k] for k in ("initrd", "carrier")}, indent=2))

@@ -147,6 +147,8 @@ int hsan_lsw_fam_read_activity(struct hsan_lsw_fam_activity *out);
 int hsan_lsw_fam_commit(const struct hsan_lsw_fam_config *cfg,
                         u32 *polls, u32 *last_status);
 bool hsan_lsw_bank_mapped(u8 bank);
+int hsan_lsw_nhp_commit(struct device *owner, u32 row,
+                        const u32 before[4], const u32 after[4]);
 int hsan_lsw_check_span(u32 logical_address, u32 bytes, bool for_write);
 /* Stage24: software-only table metadata owner. These are NOT hardware
  * hi_tab_mgr_create() and must never be used as a pipeline-ready signal.

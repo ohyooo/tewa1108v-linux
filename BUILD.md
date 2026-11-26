@@ -98,3 +98,5 @@ UDP 验证可用 `-Rounds` 指定回传次数，范围 1..20000，默认 1000
 `--retain-dma-on-down` 启用保留映射的软暂停恢复，编译并上传 `lan1-interface-test.c` 对应程序至设备 `/tmp/lan1-interface-test` 后，可用 TCP 工具的 `-InterfaceCycles` 验证传输期间 down/up，仍不允许卸载模块或释放 DMA 映射
 
 `--napt-partition` 在完整 CPU 诊断配置上启用原厂 NAPT 分区初始化，要求匹配的独立保留内存和 MCC 寄存器读回，仅完成初始化命令检查，尚未安装硬件流规则
+
+`--gro-resources` 配合 `--napt-partition` 初始化 GRO 所需的 L3/NHP 资源，比较既有表项后按原厂顺序写入并读回，尚不安装流规则

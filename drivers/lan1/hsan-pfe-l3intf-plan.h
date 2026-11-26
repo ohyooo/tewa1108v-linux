@@ -8,7 +8,7 @@
 #include <linux/unaligned.h>
 
 /* hi_lsw_pfe.ko l3intf_write @.text+0x3b38..0x3c74;
- * PUB descriptor #1 (table 0x102, 31 entries, 20-byte source).
+ * PUB descriptor #1 (table 0x102, IDs 1..31, 20-byte source).
  * The ARM32 callback builds TWO distinct 16-byte CSR rows:
  * 0x0b05b000 and 0x0b05c000, both indexed by the same table row.
  * This helper only translates the input. It cannot claim that the
@@ -34,7 +34,7 @@ static inline int hsan_pfe_l3intf_pack(u32 row,
     u32 flags32, control, upper10;
     unsigned int i;
 
-    if (!src || !out || row >= HSAN_PFE_L3INTF_ROWS)
+    if (!src || !out || !row || row > HSAN_PFE_L3INTF_ROWS)
         return -EINVAL;
     /* First 128-bit row: raw 32-bit field, two byte-reversed fields,
      * 2-bit qualifier. All destinations start at zero, matching the

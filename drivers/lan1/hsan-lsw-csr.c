@@ -373,7 +373,7 @@ EXPORT_SYMBOL_GPL(hsan_lsw_read);
  * Exclude ordinary CSR writes, RMW, generic tab128 and their preflights.
  * This is the full 16-byte row span, not only its first register word.
  */
-static bool hsan_lsw_l3intf_private_span(u32 address, u32 bytes)
+static bool hsan_lsw_pub_private_span(u32 address, u32 bytes)
 {
     static const u32 start[2] = { 0x0b05b000U, 0x0b05c000U };
     u64 last = (u64)address + bytes - 1U;
@@ -381,8 +381,10 @@ static bool hsan_lsw_l3intf_private_span(u32 address, u32 bytes)
 
     if (!bytes)
         return false;
+    if (address < 0x0b05a900U && last >= 0x0b059000U)
+        return true;
     for (i = 0; i < ARRAY_SIZE(start); i++)
-        if (address < start[i] + 31U * 16U && last >= start[i])
+        if (address < start[i] + 32U * 16U && last >= start[i])
             return true;
     return false;
 }
@@ -397,7 +399,7 @@ static int hsan_lsw_write_raw(u32 logical_address, u32 value)
 	int ret;
 	unsigned long flags;
 
-	if (hsan_lsw_l3intf_private_span(logical_address, 4))
+	if (hsan_lsw_pub_private_span(logical_address, 4))
 		return -EOPNOTSUPP;
 	if (!READ_ONCE(experimental_allow_lsw_writes))
 		return -EACCES;
@@ -428,7 +430,7 @@ int hsan_lsw_write(u32 logical_address, u32 value)
     if (hsan_lsw_ifc_private_span(logical_address, sizeof(u32)) ||
         hsan_lsw_napt_private_span(logical_address, sizeof(u32)) ||
         hsan_lsw_mcc_private_span(logical_address, sizeof(u32)) ||
-        hsan_lsw_l3intf_private_span(logical_address, sizeof(u32)) ||
+        hsan_lsw_pub_private_span(logical_address, sizeof(u32)) ||
         logical_address == 0x42000048U ||
         logical_address == 0x4200005cU ||
         logical_address == 0x4200004cU)
@@ -475,7 +477,7 @@ int hsan_lsw_write_verify(u32 logical_address, u32 value)
     if (hsan_lsw_ifc_private_span(logical_address, sizeof(u32)) ||
         hsan_lsw_napt_private_span(logical_address, sizeof(u32)) ||
         hsan_lsw_mcc_private_span(logical_address, sizeof(u32)) ||
-        hsan_lsw_l3intf_private_span(logical_address, sizeof(u32)) ||
+        hsan_lsw_pub_private_span(logical_address, sizeof(u32)) ||
         logical_address == 0x42000048U ||
         logical_address == 0x4200004cU ||
         logical_address == 0x4200005cU)
@@ -539,7 +541,7 @@ static int hsan_lsw_update_bits_common(u32 logical_address, u32 mask,
     if (hsan_lsw_ifc_private_span(logical_address, sizeof(u32)) ||
         hsan_lsw_napt_private_span(logical_address, sizeof(u32)) ||
         hsan_lsw_mcc_private_span(logical_address, sizeof(u32)) ||
-        hsan_lsw_l3intf_private_span(logical_address, sizeof(u32)) ||
+        hsan_lsw_pub_private_span(logical_address, sizeof(u32)) ||
         logical_address == 0x42000048U ||
         logical_address == 0x4200004cU ||
         logical_address == 0x4200005cU)
@@ -614,7 +616,7 @@ int hsan_lsw_write_tab128(u32 base, u32 row, const u32 words[4])
 		return -EINVAL;
 	if (check_add_overflow(base, row << 4, &logical))
 		return -EOVERFLOW;
-	if (hsan_lsw_l3intf_private_span(logical, 16))
+	if (hsan_lsw_pub_private_span(logical, 16))
 		return -EOPNOTSUPP;
 	/* A row is one 16-byte transaction. Never span logical banks. */
 	if ((logical >> 24) != (((u64)logical + 15U) >> 24))
@@ -801,7 +803,7 @@ int hsan_lsw_l3intf_pair_preflight(struct device *owner, u32 row,
     unsigned long flags;
     int ret;
 
-    if (!owner || !before_a || !before_b || row >= 31U)
+    if (!owner || !before_a || !before_b || !row || row > 31U)
         return -EINVAL;
     spin_lock_irqsave(&hsan_lsw_lock, flags);
     ret = hsan_lsw_l3intf_pair_prepare_locked(owner, row, before,
@@ -830,7 +832,7 @@ int hsan_lsw_l3intf_pair_commit(struct device *owner, u32 row,
     if (readback_ok)
         *readback_ok = false;
     if (!owner || !before_a || !before_b || !after_a || !after_b ||
-        !submitted || !readback_ok || row >= 31U)
+        !submitted || !readback_ok || !row || row > 31U)
         return -EINVAL;
     spin_lock_irqsave(&hsan_lsw_lock, flags);
     ret = hsan_lsw_l3intf_pair_prepare_locked(owner, row, before,
@@ -991,6 +993,62 @@ out:
     return ret;
 }
 EXPORT_SYMBOL_GPL(hsan_lsw_mcc_commit);
+
+/* OEM nhp_write @0x3ca0, one guarded PUB 0x101 row per boot */
+static bool hsan_lsw_nhp_written;
+int hsan_lsw_nhp_commit(struct device *owner, u32 row,
+                        const u32 before[4], const u32 after[4])
+{
+    struct hsan_bank *bank;
+    unsigned long flags;
+    u32 offset, i;
+    int ret;
+
+    if (!owner || !before || !after || !row || row > 399U)
+        return -EINVAL;
+    if (!READ_ONCE(experimental_allow_lsw_writes))
+        return -EACCES;
+    spin_lock_irqsave(&hsan_lsw_lock, flags);
+    if (!hsan_lsw_cpu_write_allowed_locked()) {
+        ret = -ESHUTDOWN;
+        goto out;
+    }
+    if (hsan_lsw_nhp_written) {
+        ret = -EALREADY;
+        goto out;
+    }
+    ret = hsan_lsw_access_locked(0x0b059000U + row * 16U, &bank, &offset);
+    if (ret)
+        goto out;
+    if (bank->owner != owner || bank->bytes < 16U ||
+        (resource_size_t)offset > bank->bytes - 16U) {
+        ret = -EPERM;
+        goto out;
+    }
+    for (i = 0; i < 4; i++) {
+        if (readl(bank->regs + offset + i * 4) != before[i]) {
+            ret = -EAGAIN;
+            goto out;
+        }
+    }
+    hsan_lsw_nhp_written = true;
+    __module_get(THIS_MODULE);
+    /* Original write_tab128 publishes the low word last */
+    for (i = 4; i-- > 0;)
+        writel(after[i], bank->regs + offset + i * 4);
+    wmb();
+    for (i = 0; i < 4; i++) {
+        if (readl(bank->regs + offset + i * 4) != after[i]) {
+            ret = -EUCLEAN;
+            goto out;
+        }
+    }
+    ret = 0;
+out:
+    spin_unlock_irqrestore(&hsan_lsw_lock, flags);
+    return ret;
+}
+EXPORT_SYMBOL_GPL(hsan_lsw_nhp_commit);
 
 /* OEM hi_lsw_pfe.ko ifc_dump @.text+0x4c0 and +0x58c:
  * seven IFC parameter registers (0x138..0x154, skipping 0x150), a
@@ -1222,7 +1280,7 @@ int hsan_lsw_check_span(u32 logical_address, u32 bytes, bool for_write)
 	    (logical_address >> 24) !=
 	    (((u64)logical_address + bytes - 1) >> 24))
 		return -ERANGE;
-	if (for_write && hsan_lsw_l3intf_private_span(logical_address, bytes))
+	if (for_write && hsan_lsw_pub_private_span(logical_address, bytes))
 		return -EOPNOTSUPP;
 	if (for_write && !READ_ONCE(experimental_allow_lsw_writes))
 		return -EACCES;

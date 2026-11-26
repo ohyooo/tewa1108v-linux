@@ -1149,6 +1149,53 @@ static int hsan_pfe_commit_l3intf_row(struct platform_device *pdev,
     return 0;
 }
 
+/* Original GRO type5: L3 source {0,0,0,0,1}, NHP byte10=0x2c
+ * The row1 preimages were sampled through the existing CSR read API
+ */
+static int hsan_pfe_gro_resources(struct platform_device *pdev,
+                                 struct hsan_pfe_state *state, bool submit)
+{
+    static const u32 nhp[4] = {0, 0, 0x02500000U, 0};
+    static const u32 l3_b[4] = {0, 0x00081000U, 0, 0};
+    static const u32 empty[8];
+    u32 before[4];
+    int ret;
+
+    if (!of_property_read_bool(pdev->dev.of_node,
+                              "hsan,experimental-gro-resource-init"))
+        return 0;
+    if (!state->l3intf_commit_requested || !state->l3intf_plan_valid ||
+        state->l3intf_plan_row != 1 ||
+        memcmp(state->l3intf_plan_a, empty, 16) ||
+        memcmp(state->l3intf_plan_b, l3_b, 16) ||
+        memcmp(state->l3intf_preimage, empty, sizeof(empty)) ||
+        of_property_count_u32_elems(pdev->dev.of_node,
+                    "hsan,observed-gro-nhp-preimage-words") != 4)
+        return -EINVAL;
+    ret = of_property_read_u32_array(pdev->dev.of_node,
+                    "hsan,observed-gro-nhp-preimage-words", before, 4);
+    if (ret || memcmp(before, empty, sizeof(before)))
+        return -EINVAL;
+    if (!submit) {
+        /* Software indices start at0; original resource IDs start at1 */
+        ret = hsan_lsw_shadow_table_reserve_range(&pdev->dev, 0x102, 0, 1);
+        if (ret)
+            return ret;
+        return hsan_lsw_shadow_table_reserve_range(&pdev->dev, 0x101, 0, 1);
+    }
+    if (!state->l3intf_write_submitted || !state->l3intf_write_readback_ok ||
+        state->napt_partition_commands != 2 || !state->napt_partition_layout_verified)
+        return -EHOSTDOWN;
+    ret = hsan_pfe_fam_fence_guard(state, 11);
+    if (ret)
+        return ret;
+    ret = hsan_lsw_nhp_commit(&pdev->dev, 1, before, nhp);
+    if (ret)
+        return ret;
+    dev_info(&pdev->dev, "GRO resource1 L3/NHP CPU readback matched; no flow installed\n");
+    return 0;
+}
+
 /* hi_lsw_pfe.ko port_vlan_write @.text+0x3998..0x39f0,
  * PUB table #7 (id=0x117): address is 0x0b040000 + VID*4.
  * OEM sets bit (port & 31) in the low16 and also bit16 (valid).
@@ -2870,6 +2917,9 @@ static int hsan_pfe_preflight_hw_plan(struct platform_device *pdev,
                                     globals);
     if (ret)
         return ret;
+    ret = hsan_pfe_gro_resources(pdev, platform_get_drvdata(pdev), false);
+    if (ret)
+        return ret;
     if (!opp && !tfrt && !mcc && !ofc && !ifc && !pa &&
         !napt && !napt_partition)
         return 0;
@@ -3206,6 +3256,10 @@ static int hsan_pfe_probe_locked(struct platform_device *pdev)
         state->l3intf_write_errno = -ret;
         goto rollback;
     }
+    state->probe_step = 11;
+    ret = hsan_pfe_gro_resources(pdev, state, true);
+    if (ret)
+        goto rollback;
     mutex_lock(&hsan_pfe_owner_lock);
     hsan_pfe_owner = state;
     mutex_unlock(&hsan_pfe_owner_lock);
