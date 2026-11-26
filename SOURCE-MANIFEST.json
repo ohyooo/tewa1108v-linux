@@ -40,8 +40,8 @@
     },
     {
       "path": "docs/gemac-silent.md",
-      "bytes": 1002,
-      "sha256": "5b89937638bec2d9d4005ddc91608828d0f086d1fe586647d06b6ecd34c02755"
+      "bytes": 1001,
+      "sha256": "264109ac077fd875264532961afe4cfec42c675a4b5ff60859e1f79bc5a62cfd"
     },
     {
       "path": "docs/lan1-progress.md",
