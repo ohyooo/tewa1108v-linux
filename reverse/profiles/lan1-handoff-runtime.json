@@ -1,0 +1,19 @@
+{
+  "captured_utc": "2026-11-26T11:14:37.672020+00:00",
+  "session": "20261126T070342079499Z",
+  "candidate": "lan1-mirror-cpu",
+  "tx_submitted": 23,
+  "tx_completed": 22,
+  "rx_packets": 0,
+  "dma_active": false,
+  "dma_quarantined": true,
+  "dma_fault_code": 11,
+  "reason": "PHY3 renegotiated beyond immutable GEMAC register mode",
+  "quarantine_kernel_uptime_seconds": 11544.718113,
+  "dma_stop_owner_return": "NOT_VERIFIED_ALL_MAPPINGS_RETAINED",
+  "arp_icmp_tcp": "NOT_ACCEPTED",
+  "gro": "NOT_ACCEPTED",
+  "final_acceptance": "0/4",
+  "raw_mmio_zero_fields": "SAMPLING_SUPPRESSED_AFTER_QUARANTINE_NOT_PROOF_REGISTERS_CLEARED",
+  "github_head": "20cae91a81cecc19542e0b0dbeff46acc679d535"
+}

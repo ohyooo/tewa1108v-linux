@@ -19,9 +19,14 @@
       "sha256": "01e08ae20d2823c67a59cb8d30d4308a8a90eb4acddcaa728ff042a0033ef424"
     },
     {
+      "path": "README.md",
+      "bytes": 3143,
+      "sha256": "e65e7bad8bcd78b34237e6fb8071f616b0bad85716862d197ed1438a454c3e85"
+    },
+    {
       "path": "docs/current-status.md",
-      "bytes": 38488,
-      "sha256": "9a1c1558822f510816524aaed751b0ae62e2f2c554631af92b3256b3f9442124"
+      "bytes": 39857,
+      "sha256": "f044707d9da44259b6f9eeea8b867a717be692041478c8cdd64d2bf099302270"
     },
     {
       "path": "docs/lan1-progress.md",
@@ -32,6 +37,11 @@
       "path": "docs/reverse-engineering.md",
       "bytes": 2089,
       "sha256": "e3889ff7c8e4ae235564c84fe533055107d99f4a46c75652e5845fcbc9b876aa"
+    },
+    {
+      "path": "drivers/lan1/Makefile",
+      "bytes": 271,
+      "sha256": "a658d9b73cfce3c63a9384d6d62281f4bb6438ecfd7ab464cdbb4f066dce30a5"
     },
     {
       "path": "drivers/lan1/board-source-observed.dts",
@@ -144,11 +154,6 @@
       "sha256": "1988272663b89a50e02a659fb12b1ba03e2be6b2529363a6803090ad59f7e80d"
     },
     {
-      "path": "drivers/lan1/Makefile",
-      "bytes": 271,
-      "sha256": "a658d9b73cfce3c63a9384d6d62281f4bb6438ecfd7ab464cdbb4f066dce30a5"
-    },
-    {
       "path": "evidence/driver-build.log",
       "bytes": 417,
       "sha256": "98f0347632d74e0d87acec1212929ad13d30cf62657573eb27b63035bb781a82"
@@ -177,11 +182,6 @@
       "path": "kernel/source-audit.json",
       "bytes": 764,
       "sha256": "69b528e567ee01868e4b0213d99da1cbd6e0dbf510867c873e0ee7d954487d6f"
-    },
-    {
-      "path": "README.md",
-      "bytes": 3143,
-      "sha256": "e65e7bad8bcd78b34237e6fb8071f616b0bad85716862d197ed1438a454c3e85"
     },
     {
       "path": "reverse/disassembly/oem-acp.dis",
@@ -249,6 +249,11 @@
       "sha256": "87eea8f2e6dfdd966ba11d966a2ce7ad783dac8db7a4e172707162e6e1ea67c3"
     },
     {
+      "path": "reverse/profiles/lan1-handoff-runtime.json",
+      "bytes": 697,
+      "sha256": "95a3a4b1ca375e223f0b20ca0a141629bb59d8b15b53278161d96b916973896b"
+    },
+    {
       "path": "reverse/profiles/oem-cpu-opp-profile.json",
       "bytes": 509,
       "sha256": "e672d824351898affba27b823f3f74c37e9edea76e7b12fbe1868287500a20d3"
@@ -257,6 +262,11 @@
       "path": "reverse/profiles/oem-drop-reasons.json",
       "bytes": 3387,
       "sha256": "c5fcc1412a582e67cd30df9821c25a7d6637bb259ad5891c263ecc728c1321d1"
+    },
+    {
+      "path": "reverse/profiles/oem-eqm-read-proof.json",
+      "bytes": 16359,
+      "sha256": "d98acbccf823754f3e61ce158b601e3977e3c6d8f53611094678f0f10c12a430"
     },
     {
       "path": "reverse/profiles/oem-mirror-candidate-trace.json",
@@ -287,6 +297,11 @@
       "path": "reverse/profiles/oem_queue_profile.json",
       "bytes": 5893,
       "sha256": "46ad8187c8f05c2465fa2d25efe70a002ecec16181086631c8a18ac445612e52"
+    },
+    {
+      "path": "reverse/profiles/trace_oem_eqm_read.py",
+      "bytes": 6783,
+      "sha256": "004d15ee327ca7c34d3578b558ba00bfb24c670f01e28b11721605665d86dda6"
     },
     {
       "path": "reverse/profiles/trace_oem_ifc.py",

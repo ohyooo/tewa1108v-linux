@@ -1,3 +1,17 @@
+## 交接前最新状态与 EQM 读取边界
+
+2026-11-26T11:14:37Z 只读复核：当前会话 20261126T070342079499Z 已在内核运行约 11544 秒后因 PHY3 重新协商超出固定 GEMAC 模式触发 code11，TX submitted 23 / completed 22，RX 0，dma_active=0，dma_quarantined=1，全部 DMA 映射保留
+
+历史 60 秒观察通过仅代表当时未隔离，当前禁止 down/up、rmmod 或释放 DMA，下一轮必须正常软件重启后换新 RAM 候选，隔离后被抑制的 MMIO 零值不能当作 STOP 证明
+
+新增原厂 hi_eqm_read_tab @0x1e1c 的真实 A32 离线执行证明，table80/81、qid81/129/160、请求长度0/1/3/5/8共30组全部通过，长度参数单位为32位词且最多读取5词，请求8不会读出8词，输出尾部保持不变，现有五词 CSR API 无需扩展
+
+hi_queue_port_cnt_get @0x4da8 使用 table81 word0+word1+word2、word3 和 table80 word2低15位，后续可用其定位CPU队列断点，计数器是否清零尚未资格验证，不能把该事务称为无副作用采样
+
+离线证明见 reverse/profiles/oem-eqm-read-proof.json，重放入口 trace_oem_eqm_read.py --module <原厂hi_lsw_dp.ko> --output <输出JSON>，模型为立即完成和可辨识的寄存器数据，不代表实板数据或网络验收
+
+最终验收仍0/4，ARP、双向ICMP、TCP、GRO以及DMA STOP/owner归还恢复均未完成
+
 ## 最新实板：TX completion 已修复，RX/ARP仍未通过
 
 20261126T060001777376Z 与 20261126T060812983624Z 均验证描述符首尾标志修复后 LAN1 UP、1000Mbps全双工、60秒无TX stall和DMA隔离
