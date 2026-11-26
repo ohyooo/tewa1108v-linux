@@ -1,6 +1,6 @@
 {
   "stage": 161,
-  "session": "20261126T113707244185Z",
+  "session": "20261126T114227535798Z",
   "test": "T6_STAGE161_WDT_DEBIAN_ARMEL_SHELL_AND_STAGE160_LAN1_NORMAL_DIAGNOSTIC",
   "status": "CPU_LAN1_UP_TRAFFIC_NOT_ACCEPTED",
   "boot_sent": true,
@@ -26,22 +26,22 @@
   "tftp_cleanup": "PASS",
   "files": {
     "initrd": {
-      "sha256": "872bacaa79e0a645a311d270a684abd3366256a4cc03f56578b7777af2835a3f",
-      "expected_bytes": 49008951,
-      "expected_crc32": "a1e99114",
+      "sha256": "8977b9fc12ab39db70b79b3db76521fd9b9577f7fdb798457b1c0302489b2f75",
+      "expected_bytes": 49009168,
+      "expected_crc32": "88fe9498",
       "attempted": true,
       "passed": true,
-      "received_bytes": 49008951,
-      "received_crc32": "a1e99114"
+      "received_bytes": 49009168,
+      "received_crc32": "88fe9498"
     },
     "carrier": {
-      "sha256": "761dc52828fec9daa1b002704ce48fa5e99eaad6a2f3c745be4640ef89677a86",
+      "sha256": "3d827dbe4bc74389c0568e158ff32d2eeef8eab1847c2c86d0dc213e7273f6e2",
       "expected_bytes": 8106032,
-      "expected_crc32": "6d9dd6b9",
+      "expected_crc32": "3418587e",
       "attempted": true,
       "passed": true,
       "received_bytes": 8106032,
-      "received_crc32": "6d9dd6b9"
+      "received_crc32": "3418587e"
     }
   },
   "phase": "LINUX_DEBIAN_DRIVER_DIAGNOSTIC",
@@ -68,14 +68,14 @@
     "files": [
       {
         "name": "stage161-debian13-armel-lan1-wdt.cpio.gz",
-        "bytes": 49008951,
-        "sha256": "872bacaa79e0a645a311d270a684abd3366256a4cc03f56578b7777af2835a3f",
+        "bytes": 49009168,
+        "sha256": "8977b9fc12ab39db70b79b3db76521fd9b9577f7fdb798457b1c0302489b2f75",
         "session_cleanup": "PASS"
       },
       {
         "name": "stage161-debian13-armel-lan1-wdt.ramimage",
         "bytes": 8106032,
-        "sha256": "761dc52828fec9daa1b002704ce48fa5e99eaad6a2f3c745be4640ef89677a86",
+        "sha256": "3d827dbe4bc74389c0568e158ff32d2eeef8eab1847c2c86d0dc213e7273f6e2",
         "session_cleanup": "PASS"
       }
     ],
@@ -98,7 +98,7 @@
   "userspace_arch": "armel",
   "running_release": "7.3.5",
   "live_dt_profile": "MATCH",
-  "effective_fdt_sha256": "85202a6d04fb68705816e10710649fe66ba296c6e9948556c9c796c1a6f6f3bf",
+  "effective_fdt_sha256": "4254b1260c8e3993c71101f70e238996b960c5061330c24f9c7d4225be7b9970",
   "module_file_hashes": "PASS",
   "module_load_rc": {
     "hsan-lsw-crg": 0,
@@ -194,6 +194,6 @@
   "cpu_lan1_up": true,
   "lsw_profile_missing": [],
   "lsw_profile_result": "REQUESTED_INITIALIZATION_OBSERVED_NOT_NETWORK_ACCEPTANCE",
-  "completed_utc": "2026-11-26T11:38:42.784465+00:00",
+  "completed_utc": "2026-11-26T11:44:03.903511+00:00",
   "shell_retained": "OBSERVED"
 }

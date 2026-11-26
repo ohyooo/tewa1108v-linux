@@ -1,8 +1,8 @@
 make: Entering directory '/home/u/tewa1108v-work/linux-7.3.5'
 make[1]: Entering directory '/home/u/tewa1108v-work/LAN1'
-  CC [M]  hsan-net-v300.o
+  CC [M]  hsan-gemac-lan1.o
   MODPOST Module.symvers
-  LD [M]  hsan-net-v300.ko
+  LD [M]  hsan-gemac-lan1.ko
 make[1]: Leaving directory '/home/u/tewa1108v-work/LAN1'
 make: Leaving directory '/home/u/tewa1108v-work/linux-7.3.5'
 CRG_ARTIFACTS_COMPLETE

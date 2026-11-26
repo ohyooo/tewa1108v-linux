@@ -101,7 +101,7 @@ int hsan_gemac_lan1_snapshot(struct hsan_gemac_snapshot *snapshot)
     }
     snapshot->config_csr = readl(mac->regs + HSAN_MAC_CONFIG_REG);
     /* Stage49: a one-time MAC write/readback at ndo_open does not
-     * establish the *current* GEMAC mode. Read three persistent OEM
+     * establish the *current* GEMAC mode. Read four persistent OEM
      * register fields on every observed link snapshot. Do not rewrite
      * the MAC or pretend the missing hot renegotiation path is safe.
      */
@@ -115,7 +115,8 @@ int hsan_gemac_lan1_snapshot(struct hsan_gemac_snapshot *snapshot)
         if (readl(mac->regs + 0x14) != expected_mode ||
             (readl(mac->regs + 0x40) &
              (BIT(24) | GENMASK(15, 8))) != BIT(24) ||
-            (snapshot->config_csr & HSAN_MAC_PAUSE_MASK) != expected_pause) {
+            (snapshot->config_csr & HSAN_MAC_PAUSE_MASK) != expected_pause ||
+            readl(mac->regs + 0x48) != 0) {
             mac->link_hw_uncertain = true;
             mac->link_register_drift_latched = true;
             dev_err(mac->dev,
@@ -443,7 +444,7 @@ int hsan_gemac_lan1_program_link(void)
 {
     struct hsan_gemac_link_snapshot link;
     struct hsan_mac_lan1 *mac;
-    u32 reg40, reg100, mode, check, expected40;
+    u32 reg40, reg100, mode, check, expected40, silent_before;
     u64 generation;
     int ret;
 
@@ -485,6 +486,7 @@ int hsan_gemac_lan1_program_link(void)
         goto out;
     }
     reg40 = readl(mac->regs + 0x40);
+    silent_before = readl(mac->regs + 0x48);
     mode = (link.speed_mbps == 1000 ? 2U :
            (link.speed_mbps == 100 ? 1U : 0U));
     if (link.full_duplex)
@@ -501,6 +503,12 @@ int hsan_gemac_lan1_program_link(void)
     writel(1, mac->regs + 0x1c);
     expected40 = (reg40 & ~(BIT(24) | GENMASK(15, 8))) | BIT(24);
     writel(expected40, mac->regs + 0x40);
+    /* OEM hi_mac_link_up @0x44ec calls ops+0x44 with silent=0.
+     * hi_mac_set_silent @0x54 masks its bool and performs a full write
+     * through hi_reg_hw_write to +0x48. This precedes pause setup and
+     * is not equivalent to speed/duplex configuration alone.
+     */
+    writel(0, mac->regs + 0x48);
     reg100 &= ~HSAN_MAC_PAUSE_MASK;
     if (link.rx_pause)
         reg100 |= BIT(29);
@@ -512,7 +520,8 @@ int hsan_gemac_lan1_program_link(void)
      * write sequence; their steady-state readback is unqualified.
      * Only verify the independently established persistent fields.
      */
-    if (readl(mac->regs + 0x14) != mode ||
+    if (readl(mac->regs + 0x48) != 0 ||
+        readl(mac->regs + 0x14) != mode ||
         (readl(mac->regs + 0x40) & (BIT(24) | GENMASK(15, 8))) !=
         (expected40 & (BIT(24) | GENMASK(15, 8))) ||
         (check & (HSAN_MAC_MTU_MASK | HSAN_MAC_PAUSE_MASK)) !=
@@ -522,6 +531,8 @@ int hsan_gemac_lan1_program_link(void)
         ret = -EUCLEAN;
         goto out;
     }
+    dev_info(mac->dev, "OEM GEMAC link-up silent register: before=%#x after=%#x\n",
+             silent_before, readl(mac->regs + 0x48));
     mac->link_speed_mbps = link.speed_mbps;
     mac->link_full_duplex = link.full_duplex;
     mac->link_rx_pause = link.rx_pause;

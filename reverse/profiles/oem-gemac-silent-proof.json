@@ -1,0 +1,64 @@
+{
+  "scope": "OFFLINE_ORIGINAL_A32_CALLBACK_NOT_BOARD_ACCEPTANCE",
+  "module_sha256": "ebdaa6ce2288457bccb04ab98dc14076faeafb22cd1d9779f137fdc872c8ed09",
+  "executed": [
+    "hi_mac_set_silent @0x54",
+    "hi_reg_hw_write @0x399c"
+  ],
+  "models": "fake MAC object points to zeroed MMIO RAM; silent CSR initial value0xa5a5a5a5; no imported function stub",
+  "link_up_call": "hi_mac_link_up @0x44ec..0x44f4 calls ops+0x44 with r1=0 before pause callback",
+  "link_down_call": "hi_mac_link_down @0x4448..0x4450 calls same callback with r1=1",
+  "cases": [
+    {
+      "input": 0,
+      "writes": [
+        [
+          72,
+          4,
+          0
+        ]
+      ]
+    },
+    {
+      "input": 1,
+      "writes": [
+        [
+          72,
+          4,
+          1
+        ]
+      ]
+    },
+    {
+      "input": 2,
+      "writes": [
+        [
+          72,
+          4,
+          0
+        ]
+      ]
+    },
+    {
+      "input": 3,
+      "writes": [
+        [
+          72,
+          4,
+          1
+        ]
+      ]
+    },
+    {
+      "input": 4294967295,
+      "writes": [
+        [
+          72,
+          4,
+          1
+        ]
+      ]
+    }
+  ],
+  "qualification": "Full 32-bit write, not RMW; changing this bit alone is not evidence of functioning RX or safe live renegotiation"
+}

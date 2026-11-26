@@ -1,0 +1,19 @@
+{
+  "session": "20261126T114227535798Z",
+  "candidate": "lan1-gemac-silent",
+  "captured_utc": "2026-11-26T11:45:05.099891+00:00",
+  "tx_completed": [
+    9,
+    16
+  ],
+  "rx_packets": 0,
+  "gemac_silent_before": 0,
+  "gemac_silent_after": 0,
+  "dma_active": true,
+  "dma_quarantined": false,
+  "eqm_engine_quarantined": false,
+  "valid_queues": 40,
+  "bidirectional_icmp": "FAILED",
+  "final_acceptance": "0/4",
+  "conclusion": "Missing OEM silent-clear operation added; register already zero before write; RX not restored"
+}

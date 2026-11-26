@@ -30,13 +30,18 @@
     },
     {
       "path": "docs/current-status.md",
-      "bytes": 42569,
-      "sha256": "8eb47c016df94800952a4e1af039a8b6548cef12b12637a11ec82c0aa7ac683d"
+      "bytes": 43571,
+      "sha256": "8959abb238ffe83e19186699220714165b7d4ebc1f039743c4dd3ea70bdcbf50"
     },
     {
       "path": "docs/eqm-queue-diagnostic.md",
       "bytes": 1485,
       "sha256": "07496c270c98288887f86722c24e589709b0e10df6a9f0be3ccd026b28b0456b"
+    },
+    {
+      "path": "docs/gemac-silent.md",
+      "bytes": 1002,
+      "sha256": "5b89937638bec2d9d4005ddc91608828d0f086d1fe586647d06b6ecd34c02755"
     },
     {
       "path": "docs/lan1-progress.md",
@@ -70,8 +75,8 @@
     },
     {
       "path": "drivers/lan1/hsan-gemac-lan1.c",
-      "bytes": 23465,
-      "sha256": "250a251f585ee7449acc442f1159fa3ca1785cabed2ffdd0aa50a7d2c39d57bb"
+      "bytes": 24056,
+      "sha256": "c725f283c3d971234cc1729c492dd4a7183e03495594bfced81229efad65229a"
     },
     {
       "path": "drivers/lan1/hsan-gemac-lan1.h",
@@ -170,8 +175,8 @@
     },
     {
       "path": "evidence/driver-build.log",
-      "bytes": 366,
-      "sha256": "77edf5eaea67c0e23ade68762db9bca274fcb82207e70d4d3a4495b5e16b16ce"
+      "bytes": 370,
+      "sha256": "1737cc6d89a48b5b333081c933ca36486693e0ed23a225cfc1c1bab3c29a7903"
     },
     {
       "path": "evidence/eqm-queue-acceptance.json",
@@ -184,9 +189,19 @@
       "sha256": "983d32840e9ad8c45d5b90fff6a31e5c2326c39d867ae78c5a3992b89016e1df"
     },
     {
+      "path": "evidence/gemac-silent-acceptance.json",
+      "bytes": 528,
+      "sha256": "a5008b13488fbef1a40cbcb310d0a66303b8e140ab03588ae28cb67b74679dee"
+    },
+    {
+      "path": "evidence/gemac-silent-snapshots.json",
+      "bytes": 48879,
+      "sha256": "403a7199a1177eaf8b47bf70e1d66b795219bf5b13477817008bfe883f65ff7a"
+    },
+    {
       "path": "evidence/latest-board-result.json",
       "bytes": 6025,
-      "sha256": "c690f5665c3098eebef8bacd02899ac9a5a3a9a37e11b18d763e692ddece267c"
+      "sha256": "04b745ba4899dc662319a1b4c20e73dc7a579e4fd2153d18f285e01ab2efb3d4"
     },
     {
       "path": "evidence/oem-linear-tx-descriptor.json",
@@ -319,6 +334,11 @@
       "sha256": "d98acbccf823754f3e61ce158b601e3977e3c6d8f53611094678f0f10c12a430"
     },
     {
+      "path": "reverse/profiles/oem-gemac-silent-proof.json",
+      "bytes": 1283,
+      "sha256": "f8358ff4cfc318ec0b8fdb08d1beb325239efddd9e07ee00f6a534e08600e5da"
+    },
+    {
       "path": "reverse/profiles/oem-mirror-candidate-trace.json",
       "bytes": 831,
       "sha256": "69bbfc6f759e997874a100fc0b39090de553a9387988c8133fefccf032ac1665"
@@ -362,6 +382,11 @@
       "path": "reverse/profiles/trace_oem_eqm_read.py",
       "bytes": 6783,
       "sha256": "004d15ee327ca7c34d3578b558ba00bfb24c670f01e28b11721605665d86dda6"
+    },
+    {
+      "path": "reverse/profiles/trace_oem_gemac_silent.py",
+      "bytes": 6383,
+      "sha256": "055c2818ff34da80a0c973a9179f641dd0f0680f0579bc92d478943a19a394f8"
     },
     {
       "path": "reverse/profiles/trace_oem_ifc.py",
@@ -511,12 +536,12 @@
     {
       "path": "tools/ram-boot/module-pins.inc",
       "bytes": 521,
-      "sha256": "ce39bd759965bbdb9dc60e5f7eee502b15e84c45a5d057c83926c8abea36b663"
+      "sha256": "8cff8cbc3b58910fad118e727d48d7f7061f702a2c0d7d3052714e21d2000daa"
     },
     {
       "path": "tools/ram-boot/module-pins.json",
       "bytes": 1216,
-      "sha256": "11bd76ece6f17999ff73f75958d78a175dfd0031fe361f0b436edd326fb75cfe"
+      "sha256": "940ec8210ac15b6994a9389bcd76f3e15e0e7318c080f6cf4d38a762282175b2"
     },
     {
       "path": "tools/ram-boot/oem_ifc_init_trace.json",
