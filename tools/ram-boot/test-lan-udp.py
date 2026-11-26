@@ -1,5 +1,6 @@
 """Validate physical LAN UDP payloads with the freestanding ARM helper."""
 from pathlib import Path
+import argparse
 import base64
 import json
 import secrets
@@ -8,9 +9,15 @@ import socket
 import threading
 import time
 
+parser = argparse.ArgumentParser()
+parser.add_argument('--rounds', type=int, default=1000)
+args = parser.parse_args()
+if not 1 <= args.rounds <= 20000:
+    parser.error('rounds must be between 1 and 20000')
 tag = secrets.token_hex(6)
 raw = bytearray()
-result = {'pass': False, 'roundtrips': 0, 'sizes': [32, 1472, 4096, 8192]}
+result = {'pass': False, 'roundtrips': 0, 'requested': args.rounds,
+          'sizes': [32, 1472, 4096, 8192]}
 stop = threading.Event()
 server = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 server.bind(('192.168.0.10', 18082))
@@ -18,17 +25,24 @@ server.settimeout(2)
 
 
 def echo():
+    expected_peer = None
     try:
-        while result['roundtrips'] < 1000 and not stop.is_set():
+        while result['roundtrips'] < args.rounds and not stop.is_set():
             try:
                 data, peer = server.recvfrom(8193)
             except socket.timeout:
+                continue
+            if expected_peer is None:
+                if data != b'TEWAUDP?' or peer[0] != '192.168.0.1':
+                    raise RuntimeError('UDP_HANDSHAKE_MISMATCH')
+                expected_peer = peer
+                server.sendto(args.rounds.to_bytes(4, 'big'), peer)
                 continue
             seq = result['roundtrips']
             size = result['sizes'][seq & 3]
             expected = bytearray((i * 17 + seq * 31) & 255 for i in range(size))
             expected[0:2] = seq.to_bytes(2, 'big')
-            if peer[0] != '192.168.0.1' or data != expected:
+            if peer != expected_peer or data != expected:
                 raise RuntimeError('UDP_PEER_OR_PAYLOAD_MISMATCH')
             if server.sendto(data, peer) != size:
                 raise RuntimeError('UDP_ECHO_SHORT_SEND')
@@ -64,8 +78,8 @@ try:
                            'udp_rc=$?; printf "UDP_HELPER_RC=%s\\n" "$udp_rc"; '
                            'rm -f /tmp/lan1-udp-test', 40)
         worker.join(3)
-        result['pass'] = (result['roundtrips'] == 1000 and 'error' not in result
-                          and b'UDP_1000_ROUNDTRIPS_PASS' in response
+        result['pass'] = (result['roundtrips'] == args.rounds and 'error' not in result
+                          and b'UDP_ROUNDTRIPS_PASS' in response
                           and b'UDP_HELPER_RC=0' in response)
 finally:
     stop.set()

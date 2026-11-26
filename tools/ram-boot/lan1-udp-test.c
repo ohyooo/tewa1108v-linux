@@ -33,6 +33,8 @@ __attribute__((noreturn)) void _start(void)
 	long result = 1;
 	int pmtu = 0; /* IP_PMTUDISC_DONT: exercise IPv4 fragmentation */
 	unsigned failed_seq = 0;
+	unsigned rounds;
+	struct { int fd; short events, revents; } hello = {(int)fd, 1, 0};
 
 	if (fd < 0)
 		goto done;
@@ -40,7 +42,15 @@ __attribute__((noreturn)) void _start(void)
 		goto close;
 	if (CALL(283, fd, &peer, sizeof(peer), 0, 0) < 0)
 		goto close;
-	for (unsigned seq = 0; seq < 1000; seq++) {
+	if (CALL(4, fd, "TEWAUDP?", 8, 0, 0) != 8 ||
+	    CALL(168, &hello, 1, 2000, 0, 0) != 1 || !(hello.revents & 1) ||
+	    CALL(3, fd, received, sizeof(received), 0, 0) != 4)
+		goto close;
+	rounds = ((unsigned)received[0] << 24) | ((unsigned)received[1] << 16) |
+		 ((unsigned)received[2] << 8) | received[3];
+	if (!rounds || rounds > 20000)
+		goto close;
+	for (unsigned seq = 0; seq < rounds; seq++) {
 		unsigned size = sizes[seq & 3];
 		struct { int fd; short events, revents; } event = {(int)fd, 1, 0};
 		failed_seq = seq;
@@ -68,7 +78,7 @@ __attribute__((noreturn)) void _start(void)
 			}
 		}
 	}
-	PRINT("UDP_1000_ROUNDTRIPS_PASS sizes=32,1472,4096,8192\n");
+	PRINT("UDP_ROUNDTRIPS_PASS sizes=32,1472,4096,8192\n");
 	result = 0;
 close:
 	if (result) {

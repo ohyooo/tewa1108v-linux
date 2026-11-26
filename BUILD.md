@@ -92,3 +92,5 @@ clang --target=arm-linux-gnueabi -march=armv5te -marm -O2 \
 Windows 主机使用已有 pyserial 环境，在管理员 PowerShell 中运行 `test-lan-tcp.ps1` 或 `test-lan-udp.ps1`，参数 `-PythonPath` 指定解释器，串口和测试网段见脚本配置
 
 UDP 工具包含分片报文验证，TCP 工具使用逐字节回传比较，运行日志仅写入本地 `work/`
+
+UDP 验证可用 `-Rounds` 指定回传次数，范围 1..20000，默认 1000
