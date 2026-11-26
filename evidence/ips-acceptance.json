@@ -1,0 +1,495 @@
+{
+  "session": "20261126T114727353855Z",
+  "candidate": "lan1-ips-counters",
+  "captured_utc": "2026-11-26T11:49:57.703945+00:00",
+  "tx_completed": [
+    10,
+    16,
+    16
+  ],
+  "rx_packets": 0,
+  "dma_active": true,
+  "dma_quarantined": false,
+  "eqm_engine_quarantined": false,
+  "ips_valid_rows": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    9,
+    10
+  ],
+  "ips_before_after_quiet": {
+    "ips_row0_raw0": [
+      10,
+      16,
+      16
+    ],
+    "ips_row0_sop_drop": [
+      0,
+      0,
+      0
+    ],
+    "ips_row0_eop_drop": [
+      0,
+      0,
+      0
+    ],
+    "ips_row0_exlong_drop": [
+      0,
+      0,
+      0
+    ],
+    "ips_row0_exshort_drop": [
+      0,
+      0,
+      0
+    ],
+    "ips_row0_mac_err_drop": [
+      0,
+      0,
+      0
+    ],
+    "ips_row0_burr_drop": [
+      0,
+      0,
+      0
+    ],
+    "ips_row1_raw0": [
+      0,
+      0,
+      0
+    ],
+    "ips_row1_sop_drop": [
+      0,
+      0,
+      0
+    ],
+    "ips_row1_eop_drop": [
+      0,
+      0,
+      0
+    ],
+    "ips_row1_exlong_drop": [
+      0,
+      0,
+      0
+    ],
+    "ips_row1_exshort_drop": [
+      0,
+      0,
+      0
+    ],
+    "ips_row1_mac_err_drop": [
+      0,
+      0,
+      0
+    ],
+    "ips_row1_burr_drop": [
+      0,
+      0,
+      0
+    ],
+    "ips_row2_raw0": [
+      0,
+      0,
+      0
+    ],
+    "ips_row2_sop_drop": [
+      0,
+      0,
+      0
+    ],
+    "ips_row2_eop_drop": [
+      0,
+      0,
+      0
+    ],
+    "ips_row2_exlong_drop": [
+      0,
+      0,
+      0
+    ],
+    "ips_row2_exshort_drop": [
+      0,
+      0,
+      0
+    ],
+    "ips_row2_mac_err_drop": [
+      0,
+      0,
+      0
+    ],
+    "ips_row2_burr_drop": [
+      0,
+      0,
+      0
+    ],
+    "ips_row3_raw0": [
+      0,
+      0,
+      0
+    ],
+    "ips_row3_sop_drop": [
+      0,
+      0,
+      0
+    ],
+    "ips_row3_eop_drop": [
+      0,
+      0,
+      0
+    ],
+    "ips_row3_exlong_drop": [
+      0,
+      0,
+      0
+    ],
+    "ips_row3_exshort_drop": [
+      0,
+      0,
+      0
+    ],
+    "ips_row3_mac_err_drop": [
+      0,
+      0,
+      0
+    ],
+    "ips_row3_burr_drop": [
+      0,
+      0,
+      0
+    ],
+    "ips_row4_raw0": [
+      1,
+      17,
+      17
+    ],
+    "ips_row4_sop_drop": [
+      0,
+      0,
+      0
+    ],
+    "ips_row4_eop_drop": [
+      0,
+      0,
+      0
+    ],
+    "ips_row4_exlong_drop": [
+      0,
+      0,
+      0
+    ],
+    "ips_row4_exshort_drop": [
+      0,
+      0,
+      0
+    ],
+    "ips_row4_mac_err_drop": [
+      0,
+      0,
+      0
+    ],
+    "ips_row4_burr_drop": [
+      0,
+      0,
+      0
+    ],
+    "ips_row5_raw0": [
+      0,
+      0,
+      0
+    ],
+    "ips_row5_sop_drop": [
+      0,
+      0,
+      0
+    ],
+    "ips_row5_eop_drop": [
+      0,
+      0,
+      0
+    ],
+    "ips_row5_exlong_drop": [
+      0,
+      0,
+      0
+    ],
+    "ips_row5_exshort_drop": [
+      0,
+      0,
+      0
+    ],
+    "ips_row5_mac_err_drop": [
+      0,
+      0,
+      0
+    ],
+    "ips_row5_burr_drop": [
+      0,
+      0,
+      0
+    ],
+    "ips_row6_raw0": [
+      0,
+      0,
+      0
+    ],
+    "ips_row6_sop_drop": [
+      0,
+      0,
+      0
+    ],
+    "ips_row6_eop_drop": [
+      0,
+      0,
+      0
+    ],
+    "ips_row6_exlong_drop": [
+      0,
+      0,
+      0
+    ],
+    "ips_row6_exshort_drop": [
+      0,
+      0,
+      0
+    ],
+    "ips_row6_mac_err_drop": [
+      0,
+      0,
+      0
+    ],
+    "ips_row6_burr_drop": [
+      0,
+      0,
+      0
+    ],
+    "ips_row7_raw0": [
+      0,
+      0,
+      0
+    ],
+    "ips_row7_sop_drop": [
+      0,
+      0,
+      0
+    ],
+    "ips_row7_eop_drop": [
+      0,
+      0,
+      0
+    ],
+    "ips_row7_exlong_drop": [
+      0,
+      0,
+      0
+    ],
+    "ips_row7_exshort_drop": [
+      0,
+      0,
+      0
+    ],
+    "ips_row7_mac_err_drop": [
+      0,
+      0,
+      0
+    ],
+    "ips_row7_burr_drop": [
+      0,
+      0,
+      0
+    ],
+    "ips_row8_raw0": [
+      0,
+      0,
+      0
+    ],
+    "ips_row8_sop_drop": [
+      0,
+      0,
+      0
+    ],
+    "ips_row8_eop_drop": [
+      0,
+      0,
+      0
+    ],
+    "ips_row8_exlong_drop": [
+      0,
+      0,
+      0
+    ],
+    "ips_row8_exshort_drop": [
+      0,
+      0,
+      0
+    ],
+    "ips_row8_mac_err_drop": [
+      0,
+      0,
+      0
+    ],
+    "ips_row8_burr_drop": [
+      0,
+      0,
+      0
+    ],
+    "ips_row9_raw0": [
+      0,
+      0,
+      0
+    ],
+    "ips_row9_sop_drop": [
+      0,
+      0,
+      0
+    ],
+    "ips_row9_eop_drop": [
+      0,
+      0,
+      0
+    ],
+    "ips_row9_exlong_drop": [
+      0,
+      0,
+      0
+    ],
+    "ips_row9_exshort_drop": [
+      0,
+      0,
+      0
+    ],
+    "ips_row9_mac_err_drop": [
+      0,
+      0,
+      0
+    ],
+    "ips_row9_burr_drop": [
+      0,
+      0,
+      0
+    ],
+    "ips_row10_raw0": [
+      0,
+      0,
+      0
+    ],
+    "ips_row10_sop_drop": [
+      0,
+      0,
+      0
+    ],
+    "ips_row10_eop_drop": [
+      0,
+      0,
+      0
+    ],
+    "ips_row10_exlong_drop": [
+      0,
+      0,
+      0
+    ],
+    "ips_row10_exshort_drop": [
+      0,
+      0,
+      0
+    ],
+    "ips_row10_mac_err_drop": [
+      0,
+      0,
+      0
+    ],
+    "ips_row10_burr_drop": [
+      0,
+      0,
+      0
+    ]
+  },
+  "traffic_delta_mod_u32": {
+    "ips_row0_raw0": 6,
+    "ips_row0_sop_drop": 0,
+    "ips_row0_eop_drop": 0,
+    "ips_row0_exlong_drop": 0,
+    "ips_row0_exshort_drop": 0,
+    "ips_row0_mac_err_drop": 0,
+    "ips_row0_burr_drop": 0,
+    "ips_row1_raw0": 0,
+    "ips_row1_sop_drop": 0,
+    "ips_row1_eop_drop": 0,
+    "ips_row1_exlong_drop": 0,
+    "ips_row1_exshort_drop": 0,
+    "ips_row1_mac_err_drop": 0,
+    "ips_row1_burr_drop": 0,
+    "ips_row2_raw0": 0,
+    "ips_row2_sop_drop": 0,
+    "ips_row2_eop_drop": 0,
+    "ips_row2_exlong_drop": 0,
+    "ips_row2_exshort_drop": 0,
+    "ips_row2_mac_err_drop": 0,
+    "ips_row2_burr_drop": 0,
+    "ips_row3_raw0": 0,
+    "ips_row3_sop_drop": 0,
+    "ips_row3_eop_drop": 0,
+    "ips_row3_exlong_drop": 0,
+    "ips_row3_exshort_drop": 0,
+    "ips_row3_mac_err_drop": 0,
+    "ips_row3_burr_drop": 0,
+    "ips_row4_raw0": 16,
+    "ips_row4_sop_drop": 0,
+    "ips_row4_eop_drop": 0,
+    "ips_row4_exlong_drop": 0,
+    "ips_row4_exshort_drop": 0,
+    "ips_row4_mac_err_drop": 0,
+    "ips_row4_burr_drop": 0,
+    "ips_row5_raw0": 0,
+    "ips_row5_sop_drop": 0,
+    "ips_row5_eop_drop": 0,
+    "ips_row5_exlong_drop": 0,
+    "ips_row5_exshort_drop": 0,
+    "ips_row5_mac_err_drop": 0,
+    "ips_row5_burr_drop": 0,
+    "ips_row6_raw0": 0,
+    "ips_row6_sop_drop": 0,
+    "ips_row6_eop_drop": 0,
+    "ips_row6_exlong_drop": 0,
+    "ips_row6_exshort_drop": 0,
+    "ips_row6_mac_err_drop": 0,
+    "ips_row6_burr_drop": 0,
+    "ips_row7_raw0": 0,
+    "ips_row7_sop_drop": 0,
+    "ips_row7_eop_drop": 0,
+    "ips_row7_exlong_drop": 0,
+    "ips_row7_exshort_drop": 0,
+    "ips_row7_mac_err_drop": 0,
+    "ips_row7_burr_drop": 0,
+    "ips_row8_raw0": 0,
+    "ips_row8_sop_drop": 0,
+    "ips_row8_eop_drop": 0,
+    "ips_row8_exlong_drop": 0,
+    "ips_row8_exshort_drop": 0,
+    "ips_row8_mac_err_drop": 0,
+    "ips_row8_burr_drop": 0,
+    "ips_row9_raw0": 0,
+    "ips_row9_sop_drop": 0,
+    "ips_row9_eop_drop": 0,
+    "ips_row9_exlong_drop": 0,
+    "ips_row9_exshort_drop": 0,
+    "ips_row9_mac_err_drop": 0,
+    "ips_row9_burr_drop": 0,
+    "ips_row10_raw0": 0,
+    "ips_row10_sop_drop": 0,
+    "ips_row10_eop_drop": 0,
+    "ips_row10_exlong_drop": 0,
+    "ips_row10_exshort_drop": 0,
+    "ips_row10_mac_err_drop": 0,
+    "ips_row10_burr_drop": 0
+  },
+  "bidirectional_icmp": "FAILED",
+  "final_acceptance": "0/4",
+  "qualification": "Separated raw snapshots; zero and delta values alone do not establish complete forwarding or counter clear behavior"
+}

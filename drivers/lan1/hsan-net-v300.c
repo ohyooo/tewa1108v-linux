@@ -4319,11 +4319,99 @@ static const char hsan_ethtool_stat_names[][ETH_GSTRING_LEN] = {
     "eqm_q160_t81_w3",
     "eqm_q160_t80_w2",
     "eqm_q160_valid",
+    "ips_row0_raw0",
+    "ips_row0_sop_drop",
+    "ips_row0_eop_drop",
+    "ips_row0_exlong_drop",
+    "ips_row0_exshort_drop",
+    "ips_row0_mac_err_drop",
+    "ips_row0_burr_drop",
+    "ips_row0_valid",
+    "ips_row1_raw0",
+    "ips_row1_sop_drop",
+    "ips_row1_eop_drop",
+    "ips_row1_exlong_drop",
+    "ips_row1_exshort_drop",
+    "ips_row1_mac_err_drop",
+    "ips_row1_burr_drop",
+    "ips_row1_valid",
+    "ips_row2_raw0",
+    "ips_row2_sop_drop",
+    "ips_row2_eop_drop",
+    "ips_row2_exlong_drop",
+    "ips_row2_exshort_drop",
+    "ips_row2_mac_err_drop",
+    "ips_row2_burr_drop",
+    "ips_row2_valid",
+    "ips_row3_raw0",
+    "ips_row3_sop_drop",
+    "ips_row3_eop_drop",
+    "ips_row3_exlong_drop",
+    "ips_row3_exshort_drop",
+    "ips_row3_mac_err_drop",
+    "ips_row3_burr_drop",
+    "ips_row3_valid",
+    "ips_row4_raw0",
+    "ips_row4_sop_drop",
+    "ips_row4_eop_drop",
+    "ips_row4_exlong_drop",
+    "ips_row4_exshort_drop",
+    "ips_row4_mac_err_drop",
+    "ips_row4_burr_drop",
+    "ips_row4_valid",
+    "ips_row5_raw0",
+    "ips_row5_sop_drop",
+    "ips_row5_eop_drop",
+    "ips_row5_exlong_drop",
+    "ips_row5_exshort_drop",
+    "ips_row5_mac_err_drop",
+    "ips_row5_burr_drop",
+    "ips_row5_valid",
+    "ips_row6_raw0",
+    "ips_row6_sop_drop",
+    "ips_row6_eop_drop",
+    "ips_row6_exlong_drop",
+    "ips_row6_exshort_drop",
+    "ips_row6_mac_err_drop",
+    "ips_row6_burr_drop",
+    "ips_row6_valid",
+    "ips_row7_raw0",
+    "ips_row7_sop_drop",
+    "ips_row7_eop_drop",
+    "ips_row7_exlong_drop",
+    "ips_row7_exshort_drop",
+    "ips_row7_mac_err_drop",
+    "ips_row7_burr_drop",
+    "ips_row7_valid",
+    "ips_row8_raw0",
+    "ips_row8_sop_drop",
+    "ips_row8_eop_drop",
+    "ips_row8_exlong_drop",
+    "ips_row8_exshort_drop",
+    "ips_row8_mac_err_drop",
+    "ips_row8_burr_drop",
+    "ips_row8_valid",
+    "ips_row9_raw0",
+    "ips_row9_sop_drop",
+    "ips_row9_eop_drop",
+    "ips_row9_exlong_drop",
+    "ips_row9_exshort_drop",
+    "ips_row9_mac_err_drop",
+    "ips_row9_burr_drop",
+    "ips_row9_valid",
+    "ips_row10_raw0",
+    "ips_row10_sop_drop",
+    "ips_row10_eop_drop",
+    "ips_row10_exlong_drop",
+    "ips_row10_exshort_drop",
+    "ips_row10_mac_err_drop",
+    "ips_row10_burr_drop",
+    "ips_row10_valid",
 };
 #define HSAN_RX_WPTR_STATS_BASE (274 + 16 * HSAN_NET_RX_CHANNELS)
 static_assert(ARRAY_SIZE(hsan_ethtool_stat_names) == HSAN_RX_WPTR_STATS_BASE +
               4 * HSAN_NET_RX_CHANNELS + 300 +
-              6 * HSAN_DP_DIAG_QUEUE_COUNT);
+              6 * HSAN_DP_DIAG_QUEUE_COUNT + 88);
 
 static void hsan_get_drvinfo(struct net_device *ndev,
                              struct ethtool_drvinfo *info)
@@ -4757,6 +4845,40 @@ static void hsan_get_ethtool_stats(struct net_device *ndev,
             for (word = 0; word < 5; word++)
                 data[base + i * 6 + word] = counters.words[i][word];
             data[base + i * 6 + 5] = 1;
+        }
+    }
+    if (READ_ONCE(p->active) &&
+        !test_bit(HSAN_FAULT_DATAPATH, &p->fault_flags) &&
+        !hsan_lsw_dp_fam_cpu_fenced() &&
+        of_property_read_bool(p->dev->of_node,
+                             "hsan,experimental-cpu-lan1-diagnostic")) {
+        unsigned int row, field;
+        const unsigned int base = ARRAY_SIZE(hsan_ethtool_stat_names) - 88;
+
+        /* OEM ips_diag_get_cnt @0x63b0: eleven rows, seven adjacent
+         * registers. Raw observations only, not atomic snapshots or
+         * DMA ownership evidence. No command register writes.
+         */
+        for (row = 0; row < 11; row++) {
+            u32 counts[7];
+            int err = 0;
+
+            /* OEM row8 selector is 64 and never selects the six error
+             * registers through its u32 port mask. Leave it invalid.
+             */
+            if (row == 8)
+                continue;
+            for (field = 0; field < ARRAY_SIZE(counts); field++) {
+                err = hsan_lsw_read(0x4400101c + row * 28 + field * 4,
+                                    &counts[field]);
+                if (err)
+                    break;
+            }
+            if (err)
+                break;
+            for (field = 0; field < ARRAY_SIZE(counts); field++)
+                data[base + row * 8 + field] = counts[field];
+            data[base + row * 8 + 7] = 1;
         }
     }
     data[197] = ktime_get_ns();

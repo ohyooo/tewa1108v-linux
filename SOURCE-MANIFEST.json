@@ -30,8 +30,8 @@
     },
     {
       "path": "docs/current-status.md",
-      "bytes": 43571,
-      "sha256": "8959abb238ffe83e19186699220714165b7d4ebc1f039743c4dd3ea70bdcbf50"
+      "bytes": 44766,
+      "sha256": "595b8343a36fbf40ac7cc943dc93482a12af1de438c0dd54288e4a7d9a085d3f"
     },
     {
       "path": "docs/eqm-queue-diagnostic.md",
@@ -42,6 +42,11 @@
       "path": "docs/gemac-silent.md",
       "bytes": 1001,
       "sha256": "264109ac077fd875264532961afe4cfec42c675a4b5ff60859e1f79bc5a62cfd"
+    },
+    {
+      "path": "docs/ips-input-diagnostics.md",
+      "bytes": 2460,
+      "sha256": "3bd9ae419f07e79b424c7260677ad7c82dab83dfc83c31a0830525e865092f69"
     },
     {
       "path": "docs/lan1-progress.md",
@@ -140,8 +145,8 @@
     },
     {
       "path": "drivers/lan1/hsan-net-v300.c",
-      "bytes": 198673,
-      "sha256": "9afd26733e8572b2538c5da7ab3cec75f8ac9d638cd374a312bd8f4926500119"
+      "bytes": 202305,
+      "sha256": "eef9a25f1c62d70f438a3cf49cd2282c9f1421e554a342fe71a071d4b693534a"
     },
     {
       "path": "drivers/lan1/hsan-pfe-l3intf-plan.h",
@@ -175,8 +180,8 @@
     },
     {
       "path": "evidence/driver-build.log",
-      "bytes": 370,
-      "sha256": "1737cc6d89a48b5b333081c933ca36486693e0ed23a225cfc1c1bab3c29a7903"
+      "bytes": 366,
+      "sha256": "77edf5eaea67c0e23ade68762db9bca274fcb82207e70d4d3a4495b5e16b16ce"
     },
     {
       "path": "evidence/eqm-queue-acceptance.json",
@@ -199,9 +204,19 @@
       "sha256": "403a7199a1177eaf8b47bf70e1d66b795219bf5b13477817008bfe883f65ff7a"
     },
     {
+      "path": "evidence/ips-acceptance.json",
+      "bytes": 7621,
+      "sha256": "03a2758800a45928846614d4010d829d85855d7d76b5365c17899c10bc0cb962"
+    },
+    {
+      "path": "evidence/ips-snapshots.json",
+      "bytes": 80929,
+      "sha256": "13254ddcf0e7f23d06d65443018650fd88816c4648b9644d8e27ecfc78070a0c"
+    },
+    {
       "path": "evidence/latest-board-result.json",
-      "bytes": 6025,
-      "sha256": "04b745ba4899dc662319a1b4c20e73dc7a579e4fd2153d18f285e01ab2efb3d4"
+      "bytes": 6034,
+      "sha256": "bec603b45e8eb6a597857887b613b516b8b16016c82fd6e341f78f5491e7beb1"
     },
     {
       "path": "evidence/oem-linear-tx-descriptor.json",
@@ -339,6 +354,11 @@
       "sha256": "f8358ff4cfc318ec0b8fdb08d1beb325239efddd9e07ee00f6a534e08600e5da"
     },
     {
+      "path": "reverse/profiles/oem-ips-counter-proof.json",
+      "bytes": 1941,
+      "sha256": "90cc8f6eba7271d5d912b80b22397a0880548630dca7b71356935cd40627c054"
+    },
+    {
       "path": "reverse/profiles/oem-mirror-candidate-trace.json",
       "bytes": 831,
       "sha256": "69bbfc6f759e997874a100fc0b39090de553a9387988c8133fefccf032ac1665"
@@ -392,6 +412,11 @@
       "path": "reverse/profiles/trace_oem_ifc.py",
       "bytes": 7136,
       "sha256": "ac4e8f7ffd80e6fb391fc88bbf118d919614d542e0e0b88bfcf31e8b7202e986"
+    },
+    {
+      "path": "reverse/profiles/trace_oem_ips_counters.py",
+      "bytes": 5621,
+      "sha256": "5c24e64e9dacb981cbb0d5081cef2a29e03fb885ad99dcc4fe40e00a9a3acf6d"
     },
     {
       "path": "reverse/profiles/trace_oem_opp.py",
@@ -536,12 +561,12 @@
     {
       "path": "tools/ram-boot/module-pins.inc",
       "bytes": 521,
-      "sha256": "8cff8cbc3b58910fad118e727d48d7f7061f702a2c0d7d3052714e21d2000daa"
+      "sha256": "4499ab52f1781838be43fbd3ff193f47cb0bedb3b23c7401d857e27d3021f216"
     },
     {
       "path": "tools/ram-boot/module-pins.json",
       "bytes": 1216,
-      "sha256": "940ec8210ac15b6994a9389bcd76f3e15e0e7318c080f6cf4d38a762282175b2"
+      "sha256": "8855638a628f6b256dde8b65b093411c116a83617fdc309b6cdfae7c8e3602be"
     },
     {
       "path": "tools/ram-boot/oem_ifc_init_trace.json",

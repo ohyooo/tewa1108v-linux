@@ -35,8 +35,8 @@
     "crc32": "dbadb3a5"
   },
   "hsan-net-v300": {
-    "bytes": 121128,
-    "sha256": "9024d53fb2b8ce67147ade40740567c933b6be5b6337f896dbbf8016d5c484a2",
-    "crc32": "9295b968"
+    "bytes": 124320,
+    "sha256": "ba1e725878ea79ec3e4873edc5ecff6a2e9a623848cc1b394b0a31f8c57daf66",
+    "crc32": "c5965725"
   }
 }
