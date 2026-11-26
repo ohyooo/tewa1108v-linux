@@ -1,3 +1,11 @@
+## 最新RX0大缓冲实板 20261126T113707244185Z
+
+独立RAM候选 --rx0-large-buffer 已验证实际RX0 DMA缓冲15360字节及对应large位，读回0xf1，八模块加载、ndo_open和60秒观察完成，未发生DMA或EQM隔离
+
+流量前后TX完成9→16，qid81 table81 word3同步推进，CPU队列采样全0，RX仍0，双向ICMP失败，最终验收0/4
+
+该差异不足以单独恢复收包，保留实验选项但默认不启用，不能当作已修复根因或GRO支持，后续继续定位首包上送路径
+
 ## 调用者溯源修正
 
 原厂 selector7 的已证实调用者是 hi_kcfe_lrn_l2.ko 的 hi_cfe_lrn_l2_add，在0x290设置7并于0x2b0写入flow+0x55，0x3e8调用hi_adp_flow_add

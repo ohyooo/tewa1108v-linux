@@ -4923,6 +4923,7 @@ static int hsan_probe(struct platform_device *pdev)
     int ret, cells, irq_count;
     int irqs[HSAN_NET_RX_CHANNELS];
     bool polling;
+    bool rx0_large;
 
     res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
     if (!res || res->start != HSAN_PIE_ADDR ||
@@ -4940,10 +4941,16 @@ static int hsan_probe(struct platform_device *pdev)
         return -EINVAL;
     if (tx[0] != HSAN_NET_TX_ORDER || tx[1] != 8)
         return dev_err_probe(dev, -EINVAL, "OEM TX ring definitions changed\n");
+    rx0_large = of_property_read_bool(dev->of_node,
+                                     "hsan,experimental-rx0-large-buffer");
+    if (rx0_large && !of_property_read_bool(dev->of_node,
+                                          "hsan,experimental-cpu-lan1-diagnostic"))
+        return dev_err_probe(dev, -EINVAL, "RX0 large buffer requires CPU diagnostic mode\n");
     for (ch = 0; ch < HSAN_NET_RX_CHANNELS; ch++)
-        if (rx[2 * ch] != HSAN_NET_RX_ORDER || rx[2 * ch + 1] != HSAN_BUF_SIZE)
+        if (rx[2 * ch] != HSAN_NET_RX_ORDER ||
+            rx[2 * ch + 1] != (rx0_large && !ch ? 15360 : HSAN_BUF_SIZE))
             return dev_err_probe(dev, -EINVAL,
-                "ordinary RX%u requires 1024 descriptors and 2048-byte buffers\n", ch);
+                "ordinary RX%u has unexpected diagnostic ring/buffer geometry\n", ch);
     /* OEM probe explicitly treats an absent gro_ring as zero GRO rings.
      * Parse the optional geometry rather than silently ignoring it. The
      * recovered 4x(64,15360) configuration registers for diagnostics, but
@@ -5016,7 +5023,7 @@ static int hsan_probe(struct platform_device *pdev)
         q->parent = p;
         q->channel = ch;
         q->ring_order = ch < HSAN_NET_RX_CHANNELS ? HSAN_NET_RX_ORDER : 6;
-        q->buffer_size = ch < HSAN_NET_RX_CHANNELS ? HSAN_BUF_SIZE : 15360;
+        q->buffer_size = ch < HSAN_NET_RX_CHANNELS ? rx[2 * ch + 1] : 15360;
         q->rx_count = BIT(q->ring_order);
         q->rx_mask = q->rx_count - 1;
         q->irq = irqs[ch < HSAN_NET_RX_CHANNELS ? ch :
