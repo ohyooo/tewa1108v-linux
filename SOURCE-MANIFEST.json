@@ -25,13 +25,13 @@
     },
     {
       "path": "docs/capa-selector7.md",
-      "bytes": 2101,
-      "sha256": "c419ec3e3110acc7fac6d77ed34e40f8be6e451c400e314961c426f823a79144"
+      "bytes": 3553,
+      "sha256": "acf13f59573c926c48b52ddab54947c3c7b026c04af078860a2d1c24a6ba7cf1"
     },
     {
       "path": "docs/current-status.md",
-      "bytes": 40595,
-      "sha256": "8332f1ceb8b223fbb17e5aefc525b4bcff8dfab9e9b51ee7b9f74902e5299724"
+      "bytes": 42047,
+      "sha256": "814a09e58caf52855eaf8040a2e07ad590114cda5df034c3aef288deac0c8fe9"
     },
     {
       "path": "docs/eqm-queue-diagnostic.md",
@@ -269,9 +269,19 @@
       "sha256": "87eea8f2e6dfdd966ba11d966a2ce7ad783dac8db7a4e172707162e6e1ea67c3"
     },
     {
+      "path": "reverse/profiles/inspect_oem_capa_dependencies.py",
+      "bytes": 5384,
+      "sha256": "5c356c595359cdde71ff635f8ef124e417259f38d90431a116c3b9e3595ca9a5"
+    },
+    {
       "path": "reverse/profiles/lan1-handoff-runtime.json",
       "bytes": 697,
       "sha256": "95a3a4b1ca375e223f0b20ca0a141629bb59d8b15b53278161d96b916973896b"
+    },
+    {
+      "path": "reverse/profiles/oem-capa-callback-provenance.json",
+      "bytes": 5420,
+      "sha256": "878cb85ab381844f4722ecc7df0cd9f84f28806debc8fb26a6f96dc90c9361e3"
     },
     {
       "path": "reverse/profiles/oem-capa-selector7-proof.json",

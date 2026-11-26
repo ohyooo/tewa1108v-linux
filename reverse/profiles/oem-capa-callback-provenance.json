@@ -1,0 +1,230 @@
+{
+  "scope": "STATIC_OEM_ELF_PROVENANCE_NOT_HARDWARE_ACCEPTANCE",
+  "modules": {
+    "hi_lsw_pfe": "7591ef5077c540b40f60b4bd5b30620775ab025c4389e353f0f5a1e261e1804e",
+    "hi_lsw_dp": "250e5da2dd32f65887069a4b0c54773e9258bf48b988b7aff122620f1768bded",
+    "hi_kcapa": "9a13a7d0f0b9aeecaf9c36106d2775cb68b294d6ffd5b55c5b4803b9305b16b2",
+    "hi_kcfe_pub": "c61d0a1ec23883d6ac721744e29213a7efb432d39e24fe77c1d4dabebd3fd11c",
+    "hi_kcfe_lrn_l2": "381aa96d29d61ae1ddc0f479cce0f74b47ded7919e211a7ab308282620760207"
+  },
+  "pub_tables": [
+    {
+      "id": 257,
+      "name": "nhp",
+      "entries": 399,
+      "entry_bytes": 12,
+      "callbacks": {
+        "write": {
+          "section": ".text",
+          "offset": 15520,
+          "symbols": [
+            "nhp_write"
+          ]
+        },
+        "dump": {
+          "section": ".text",
+          "offset": 14464,
+          "symbols": [
+            "nhp_dump"
+          ]
+        }
+      }
+    },
+    {
+      "id": 258,
+      "name": "l3intf",
+      "entries": 31,
+      "entry_bytes": 20,
+      "callbacks": {
+        "write": {
+          "section": ".text",
+          "offset": 15160,
+          "symbols": [
+            "l3intf_write"
+          ]
+        },
+        "dump": {
+          "section": ".text",
+          "offset": 14028,
+          "symbols": [
+            "l3intf_dump"
+          ]
+        }
+      }
+    },
+    {
+      "id": 259,
+      "name": "tagact",
+      "entries": 255,
+      "entry_bytes": 12,
+      "callbacks": {
+        "write": {
+          "section": ".text",
+          "offset": 15900,
+          "symbols": [
+            "tag_write"
+          ]
+        },
+        "dump": {
+          "section": ".text",
+          "offset": 13748,
+          "symbols": [
+            "tag_dump"
+          ]
+        }
+      }
+    },
+    {
+      "id": 272,
+      "name": "wifi_mc_key",
+      "entries": 32,
+      "entry_bytes": 12,
+      "callbacks": {
+        "write": {
+          "section": ".text",
+          "offset": 13260,
+          "symbols": [
+            "wifi_mc_write"
+          ]
+        },
+        "delete": {
+          "section": ".text",
+          "offset": 16320,
+          "symbols": [
+            "wifi_mc_del"
+          ]
+        },
+        "dump": {
+          "section": ".text",
+          "offset": 13616,
+          "symbols": [
+            "wifi_mc_dump"
+          ]
+        }
+      }
+    },
+    {
+      "id": 275,
+      "name": "wifi_user_mac",
+      "entries": 255,
+      "entry_bytes": 8,
+      "callbacks": {
+        "write": {
+          "section": ".text",
+          "offset": 16328,
+          "symbols": [
+            "wifi_user_mac_write"
+          ]
+        },
+        "dump": {
+          "section": ".text",
+          "offset": 13540,
+          "symbols": [
+            "wifi_user_mac_dump"
+          ]
+        }
+      }
+    },
+    {
+      "id": 285,
+      "name": "car",
+      "entries": 127,
+      "entry_bytes": 4,
+      "callbacks": {
+        "write": {
+          "section": ".text",
+          "offset": 16336,
+          "symbols": [
+            "car_write"
+          ]
+        },
+        "delete": {
+          "section": ".text",
+          "offset": 15728,
+          "symbols": [
+            "car_del"
+          ]
+        },
+        "dump": {
+          "section": ".text",
+          "offset": 13464,
+          "symbols": [
+            "car_dump"
+          ]
+        }
+      }
+    },
+    {
+      "id": 6,
+      "name": "car_profile",
+      "entries": 63,
+      "entry_bytes": 12,
+      "callbacks": {
+        "write": {
+          "section": ".text",
+          "offset": 14836,
+          "symbols": [
+            "car_profile_write"
+          ]
+        },
+        "dump": {
+          "section": ".text",
+          "offset": 13296,
+          "symbols": [
+            "car_profile_dump"
+          ]
+        }
+      }
+    },
+    {
+      "id": 279,
+      "name": "port_vlan",
+      "entries": 4095,
+      "entry_bytes": 4,
+      "callbacks": {
+        "write": {
+          "section": ".text",
+          "offset": 14744,
+          "symbols": [
+            "port_vlan_write"
+          ]
+        },
+        "delete": {
+          "section": ".text",
+          "offset": 14640,
+          "symbols": [
+            "port_vlan_del"
+          ]
+        },
+        "dump": {
+          "section": ".text",
+          "offset": 13268,
+          "symbols": [
+            "port_vlan_dump"
+          ]
+        }
+      }
+    },
+    {
+      "id": 296,
+      "name": "gro",
+      "entries": 0,
+      "entry_bytes": 4,
+      "callbacks": {}
+    }
+  ],
+  "selector7_provenance": {
+    "caller": "hi_kcfe_lrn_l2.ko hi_cfe_lrn_l2_add: selector7 stored at flow+0x55, hi_adp_flow_add called at0x3e8",
+    "adapter": "hi_kcfe_pub.ko hi_adp_flow_add @0x19cc loads registered ops+0x38",
+    "registration": "hi_kcapa.ko init_module passes .rodata+0 to hi_cfe_adp_lsw_register; slot+0x38 resolves to hi_capa_flow_add @0xe6c",
+    "action": "hi_cfe_lrn_set_net_port copies six bytes of learned port data, then MAC/direction/QoS/tag/stat helpers populate the flow",
+    "qualification": "An L2 learning acceleration consumer is proven; a generic initial CPU receive/trap rule is NOT proven"
+  },
+  "table100": {
+    "owner": "hi_lsw_dp.ko internal init @0x3fc, create @0x508",
+    "entry_bytes": 24,
+    "write": "hi_tab_write_cnt",
+    "read": "hi_tab_read_cnt",
+    "qualification": "Statistics resource; allocation ID alone is not a forwarding target"
+  }
+}

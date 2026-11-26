@@ -1,3 +1,21 @@
+## 调用者溯源修正
+
+原厂 selector7 的已证实调用者是 hi_kcfe_lrn_l2.ko 的 hi_cfe_lrn_l2_add，在0x290设置7并于0x2b0写入flow+0x55，0x3e8调用hi_adp_flow_add
+
+hi_kcfe_pub.ko 的 hi_adp_flow_add @0x19cc读取注册ops+0x38，hi_kcapa.ko的.rodata+0x38经ELF重定位解析为hi_capa_flow_add @0xe6c，其初始化将此ops交给hi_cfe_adp_lsw_register
+
+因此现有证据证明L2学习加速使用该候选，不能把selector7直接称为CPU接收规则，也不能据此断言移植它会修复首包RX
+
+真实action来自学习记录的端口六字节及MAC、direction、QoS、tag、stat助手，并非前一轮离线验证所用的任意测试action，实际CPU收包语义仍需独立证明
+
+已解析原厂九个PUB配置记录的函数重定位，0x101回调nhp_write @0x3ca0、0x102回调l3intf_write @0x3b38、0x103回调tag_write @0x3e1c，当前软件shadow不等于这些回调已执行
+
+0x100由DP内部初始化创建，是24字节计数资源，回调hi_tab_write_cnt/hi_tab_read_cnt，不能把其分配ID当作CPU转发目标
+
+新增inspect_oem_capa_dependencies.py直接校验原厂ELF重定位及关键A32指令，输出oem-capa-callback-provenance.json可独立复核，本轮未修改硬件配置，未声称网络恢复
+
+后续优先追踪首次入站的CPU trap或默认转发入口及PFE各级活动证据，L2学习路径保留用于后续完整加速移植，避免用学习加速替代基础CPU收包
+
 # CAPA selector7 完整候选及前置依赖
 
 执行原厂 hi_kcapa.ko 的 hi_capa_flow_add @0xe6c，selector7 分支 @0x1114，已核对完整32字节 table0x11b 候选，不再仅有16字节前缀
