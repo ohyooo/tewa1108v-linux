@@ -1,6 +1,6 @@
 {
   "stage": 161,
-  "session": "20261126T114727353855Z",
+  "session": "20261126T115711233391Z",
   "test": "T6_STAGE161_WDT_DEBIAN_ARMEL_SHELL_AND_STAGE160_LAN1_NORMAL_DIAGNOSTIC",
   "status": "CPU_LAN1_UP_TRAFFIC_NOT_ACCEPTED",
   "boot_sent": true,
@@ -26,22 +26,22 @@
   "tftp_cleanup": "PASS",
   "files": {
     "initrd": {
-      "sha256": "fdff1ab672422fbe9e49c52e83042d651d0f6dfdf6988227576d447050649b90",
-      "expected_bytes": 49009661,
-      "expected_crc32": "d48c5da8",
+      "sha256": "a124699004ef24eb84113bc1917a253610d81422470614c66dd080f1a76d89e5",
+      "expected_bytes": 49010388,
+      "expected_crc32": "06408bd6",
       "attempted": true,
       "passed": true,
-      "received_bytes": 49009661,
-      "received_crc32": "d48c5da8"
+      "received_bytes": 49010388,
+      "received_crc32": "06408bd6"
     },
     "carrier": {
-      "sha256": "6a85bbc93cb0d0f51469ba1323557f144001dc8c753d40c5634cad320074906b",
-      "expected_bytes": 8106032,
-      "expected_crc32": "f47e1be1",
+      "sha256": "e22f933e6277371b9631bb42f8c07a4bf04e521f9ae1817017385076ebea0525",
+      "expected_bytes": 8106080,
+      "expected_crc32": "4791390b",
       "attempted": true,
       "passed": true,
-      "received_bytes": 8106032,
-      "received_crc32": "f47e1be1"
+      "received_bytes": 8106080,
+      "received_crc32": "4791390b"
     }
   },
   "phase": "LINUX_DEBIAN_DRIVER_DIAGNOSTIC",
@@ -68,14 +68,14 @@
     "files": [
       {
         "name": "stage161-debian13-armel-lan1-wdt.cpio.gz",
-        "bytes": 49009661,
-        "sha256": "fdff1ab672422fbe9e49c52e83042d651d0f6dfdf6988227576d447050649b90",
+        "bytes": 49010388,
+        "sha256": "a124699004ef24eb84113bc1917a253610d81422470614c66dd080f1a76d89e5",
         "session_cleanup": "PASS"
       },
       {
         "name": "stage161-debian13-armel-lan1-wdt.ramimage",
-        "bytes": 8106032,
-        "sha256": "6a85bbc93cb0d0f51469ba1323557f144001dc8c753d40c5634cad320074906b",
+        "bytes": 8106080,
+        "sha256": "e22f933e6277371b9631bb42f8c07a4bf04e521f9ae1817017385076ebea0525",
         "session_cleanup": "PASS"
       }
     ],
@@ -94,11 +94,11 @@
   "ram_pair": "PASS_CURRENT_PAIR_RAM_CRC_ONLY",
   "oem_nand_fallback_observed": "UNVERIFIED",
   "oem_boot_selector_message": "boot from kernelb and update reg to 10",
-  "module_hash_marker_source": "RAW",
+  "module_hash_marker_source": "PRINTK_INTERLEAVING_RECONSTRUCTED",
   "userspace_arch": "armel",
   "running_release": "7.3.5",
   "live_dt_profile": "MATCH",
-  "effective_fdt_sha256": "adae6bd230c9a45deaf3bb6ea4ada56d5539b98ce68d951fa665793c4993fd7a",
+  "effective_fdt_sha256": "32d09f34d4bd8dc9db9aa0467799f50b41dc5015eae03f770afb2eb05412a040",
   "module_file_hashes": "PASS",
   "module_load_rc": {
     "hsan-lsw-crg": 0,
@@ -179,7 +179,7 @@
   "interactive_prompt_observed": true,
   "wdt_device_present": "NOT_OBSERVED",
   "wdt_driver_bound": "OBSERVED",
-  "wdt_status_attributes": "UNAVAILABLE",
+  "wdt_status_attributes": null,
   "wdt_device_number": "254:0",
   "wdt_driver": "/sys/bus/platform/drivers/dw_wdt",
   "wdt_identity": null,
@@ -194,6 +194,6 @@
   "cpu_lan1_up": true,
   "lsw_profile_missing": [],
   "lsw_profile_result": "REQUESTED_INITIALIZATION_OBSERVED_NOT_NETWORK_ACCEPTANCE",
-  "completed_utc": "2026-11-26T11:49:02.588501+00:00",
+  "completed_utc": "2026-11-26T11:58:47.760493+00:00",
   "shell_retained": "OBSERVED"
 }

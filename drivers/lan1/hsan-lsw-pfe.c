@@ -2588,6 +2588,44 @@ static int hsan_pfe_lan1_opp(struct platform_device *pdev, bool submit)
  * eight priorities and eight selector slots, 256 exact CSR words.
  * Executed original A32 trace confirms qid129..160 and these addresses.
  */
+/* Original hi_pfe_opp_init port33 branch @0x337c/0x3268, proven
+ * against all 1024 original A32 writes. Its role in CPU RX is not
+ * assumed; this explicit boot-only candidate restores that init range.
+ */
+static int hsan_pfe_port33_opp(struct platform_device *pdev, bool submit)
+{
+    struct hsan_dp_queue_snapshot q;
+    unsigned int priority, selector;
+    int ret;
+
+    if (!of_property_read_bool(pdev->dev.of_node,
+                              "hsan,experimental-program-port33-opp"))
+        return 0;
+    if (!of_property_read_bool(pdev->dev.of_node,
+                              "hsan,experimental-program-cpu-opp"))
+        return -EPERM;
+    ret = hsan_lsw_dp_get_queue(33, &q);
+    if (ret)
+        return ret;
+    if (!hsan_pfe_dp_lan1_handoff(&q) || q.count != 8 || q.qid != 169)
+        return -ENODATA;
+    ret = hsan_lsw_check_span(0x06058000, 1024 * sizeof(u32), true);
+    if (ret || !submit)
+        return ret;
+    for (priority = 0; priority < 8; priority++)
+        for (selector = 0; selector < 128; selector++) {
+            u32 address = 0x06058000 + priority * 4 + selector * 32;
+            u32 value = BIT(8) | (q.qid + priority);
+
+            ret = hsan_lsw_write_verify(address, value);
+            if (ret)
+                return ret;
+        }
+    dev_info(&pdev->dev,
+             "OEM OPP port33 qid169..176 map verified: 1024 words; CPU forwarding unqualified\n");
+    return 0;
+}
+
 static int hsan_pfe_cpu_opp(struct platform_device *pdev, bool submit)
 {
     struct hsan_dp_queue_snapshot q[4];
@@ -2734,6 +2772,9 @@ static int hsan_pfe_preflight_hw_plan(struct platform_device *pdev,
         if (ret)
             return ret;
     }
+    ret = hsan_pfe_port33_opp(pdev, false);
+    if (ret)
+        return ret;
     ret = hsan_pfe_preflight_l3intf(pdev, platform_get_drvdata(pdev),
                                     globals);
     if (ret)
@@ -2985,6 +3026,9 @@ static int hsan_pfe_probe_locked(struct platform_device *pdev)
 		goto rollback;
     state->lan1_opp_verified = of_property_read_bool(pdev->dev.of_node,
                                   "hsan,experimental-program-lan1-opp");
+    ret = hsan_pfe_port33_opp(pdev, true);
+    if (ret)
+        goto rollback;
     ret = hsan_pfe_cpu_opp(pdev, true);
     if (ret)
         goto rollback;

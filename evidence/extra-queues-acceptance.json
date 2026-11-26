@@ -1,0 +1,28 @@
+{
+  "session": "20261126T115320145676Z",
+  "candidate": "lan1-extra-queues",
+  "captured_utc": "2026-11-26T11:55:43.998423+00:00",
+  "stat_count": 1078,
+  "valid_queues": 56,
+  "tx_completed": [
+    10,
+    16
+  ],
+  "rx_packets": 0,
+  "dma_active": true,
+  "dma_quarantined": false,
+  "eqm_engine_quarantined": false,
+  "ips_lan1_raw0": [
+    1,
+    17
+  ],
+  "nonzero_queue_words": {
+    "eqm_q81_t81_w3": [
+      10,
+      16
+    ]
+  },
+  "bidirectional_icmp": "FAILED",
+  "final_acceptance": "0/4",
+  "qualification": "Additional port2/port33 snapshots do not establish default receive destination or exhaustive forwarding"
+}

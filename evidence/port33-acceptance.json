@@ -1,0 +1,29 @@
+{
+  "session": "20261126T115711233391Z",
+  "candidate": "lan1-port33-opp",
+  "captured_utc": "2026-11-26T11:59:46.360154+00:00",
+  "opp_port33_words_verified": 1024,
+  "stat_count": 1078,
+  "valid_queues": 56,
+  "tx_completed": [
+    10,
+    16
+  ],
+  "rx_packets": 0,
+  "dma_active": true,
+  "dma_quarantined": false,
+  "eqm_engine_quarantined": false,
+  "ips_lan1_raw0": [
+    1,
+    17
+  ],
+  "nonzero_queue_words": {
+    "eqm_q81_t81_w3": [
+      10,
+      16
+    ]
+  },
+  "bidirectional_icmp": "FAILED",
+  "final_acceptance": "0/4",
+  "qualification": "Original port33 mapping committed and readback verified, but no CPU receive destination or network acceptance established"
+}

@@ -1,0 +1,12 @@
+WIN_NETWORK_SETUP_OK adapter=以太网 index=11 addr_added=False
+SERIAL_RESPONSE_SAVED b5ca10ee3dcc
+
+Pinging 192.168.0.1 from 192.168.0.10 with 32 bytes of data:
+Request timed out.
+Request timed out.
+Request timed out.
+
+Ping statistics for 192.168.0.1:
+    Packets: Sent = 3, Received = 0, Lost = 3 (100% loss),
+SERIAL_RESPONSE_SAVED 8f3f1175673d
+WIN_NETWORK_CLEANUP_PASS

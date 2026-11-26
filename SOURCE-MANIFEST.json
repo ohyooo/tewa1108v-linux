@@ -30,13 +30,18 @@
     },
     {
       "path": "docs/current-status.md",
-      "bytes": 44766,
-      "sha256": "595b8343a36fbf40ac7cc943dc93482a12af1de438c0dd54288e4a7d9a085d3f"
+      "bytes": 45645,
+      "sha256": "f20e00ebd36f1ac677fec9fa65f29e046c6c41c5f06c00b443be5a40a5641ec2"
     },
     {
       "path": "docs/eqm-queue-diagnostic.md",
       "bytes": 1485,
       "sha256": "07496c270c98288887f86722c24e589709b0e10df6a9f0be3ccd026b28b0456b"
+    },
+    {
+      "path": "docs/extra-egress-queues.md",
+      "bytes": 1080,
+      "sha256": "b9b9aa5b3af98728fb1ccdf8f15d289c35910611faa6a4b55ab8f28a31b13966"
     },
     {
       "path": "docs/gemac-silent.md",
@@ -52,6 +57,11 @@
       "path": "docs/lan1-progress.md",
       "bytes": 2673,
       "sha256": "a9b35ba610e6f9e992d61a48754e6011cde4c9fa4badd952ae340b8dce59e23a"
+    },
+    {
+      "path": "docs/port33-opp-candidate.md",
+      "bytes": 2000,
+      "sha256": "a91d3981d6955b5d9536c0b626f52f4c729e39b6a6ff089c5a2ec127dfe587b5"
     },
     {
       "path": "docs/reverse-engineering.md",
@@ -111,7 +121,7 @@
     {
       "path": "drivers/lan1/hsan-lsw-dp.h",
       "bytes": 4300,
-      "sha256": "358672c6a41f263310f205eb699eeac2a08203b0c5497f7a6491965cf89b0226"
+      "sha256": "22dba10335d8f13f1421edecf426f084661774355076f5fe412818ae02bb11cf"
     },
     {
       "path": "drivers/lan1/hsan-lsw-fam-stop-state.h",
@@ -120,8 +130,8 @@
     },
     {
       "path": "drivers/lan1/hsan-lsw-pfe.c",
-      "bytes": 123925,
-      "sha256": "4873d825aada5d2dac70029b97f44b16bdd7dd32a02f21ae86e333cf9fb0f2f5"
+      "bytes": 125502,
+      "sha256": "f3c725b37f3a74d2f61e0205418cae3138582b1e559787bc0f6bc3c75390cd79"
     },
     {
       "path": "drivers/lan1/hsan-lsw-pfe.h",
@@ -145,8 +155,8 @@
     },
     {
       "path": "drivers/lan1/hsan-net-v300.c",
-      "bytes": 202305,
-      "sha256": "eef9a25f1c62d70f438a3cf49cd2282c9f1421e554a342fe71a071d4b693534a"
+      "bytes": 204497,
+      "sha256": "aca31913e0e416a34c4aea863f998b771a4c3b2ed583f61668d2a930dfa092d6"
     },
     {
       "path": "drivers/lan1/hsan-pfe-l3intf-plan.h",
@@ -180,8 +190,8 @@
     },
     {
       "path": "evidence/driver-build.log",
-      "bytes": 366,
-      "sha256": "77edf5eaea67c0e23ade68762db9bca274fcb82207e70d4d3a4495b5e16b16ce"
+      "bytes": 364,
+      "sha256": "578dfa51979025aa68f0baae86aaca62840c3f48f48f565210dc14cc54ce6535"
     },
     {
       "path": "evidence/eqm-queue-acceptance.json",
@@ -192,6 +202,16 @@
       "path": "evidence/eqm-queue-snapshots.json",
       "bytes": 48884,
       "sha256": "983d32840e9ad8c45d5b90fff6a31e5c2326c39d867ae78c5a3992b89016e1df"
+    },
+    {
+      "path": "evidence/extra-queues-acceptance.json",
+      "bytes": 630,
+      "sha256": "4f98ea848cb0da15a2ac00ada27f413a0598076b7a10494ed8bbdf3d40c47aa6"
+    },
+    {
+      "path": "evidence/extra-queues-snapshots.json",
+      "bytes": 58904,
+      "sha256": "4844c04f76665f3b49dc5dc49a50a5e7152c74d3814beb02df379fb8c4cd7423"
     },
     {
       "path": "evidence/gemac-silent-acceptance.json",
@@ -215,13 +235,28 @@
     },
     {
       "path": "evidence/latest-board-result.json",
-      "bytes": 6034,
-      "sha256": "bec603b45e8eb6a597857887b613b516b8b16016c82fd6e341f78f5491e7beb1"
+      "bytes": 6055,
+      "sha256": "438aa6368b4e57851913800dbbb2e311d9a941331b4ebe04f19020ed782cc072"
     },
     {
       "path": "evidence/oem-linear-tx-descriptor.json",
       "bytes": 363,
       "sha256": "38ddb5ab020b118ac1bc4329422e946d50d16d74d94ef54d0d5fd6573db06e9b"
+    },
+    {
+      "path": "evidence/port33-acceptance.json",
+      "bytes": 683,
+      "sha256": "5627fc320d7cf6d63c14945d123e22912f8b448235b1d5f55b57f38c5492fc50"
+    },
+    {
+      "path": "evidence/port33-network-test.txt",
+      "bytes": 372,
+      "sha256": "9e8eefef760d27eb89852a90162965aa5bbcd249412c36ab752f4c400863d05a"
+    },
+    {
+      "path": "evidence/port33-snapshots.json",
+      "bytes": 58905,
+      "sha256": "c250fefe5b95fecab1d4752337e76c1ea34465a88fac2533b220db9cdd8b9884"
     },
     {
       "path": "evidence/rx-observe-deltas.json",
@@ -314,6 +349,11 @@
       "sha256": "87eea8f2e6dfdd966ba11d966a2ce7ad783dac8db7a4e172707162e6e1ea67c3"
     },
     {
+      "path": "reverse/profiles/derive_oem_opp_port33.py",
+      "bytes": 1719,
+      "sha256": "25808320142ab69b00f0fd96e3ae1cb8796582de8080cecd99064d4d6a6df504"
+    },
+    {
       "path": "reverse/profiles/inspect_oem_capa_dependencies.py",
       "bytes": 5384,
       "sha256": "5c356c595359cdde71ff635f8ef124e417259f38d90431a116c3b9e3595ca9a5"
@@ -367,6 +407,11 @@
       "path": "reverse/profiles/oem-opp-init-trace.json",
       "bytes": 58114,
       "sha256": "d93c3162f9da422a57d113b74bae3f201eb0dff5f0d4e9c6a79dcd89aa39d269"
+    },
+    {
+      "path": "reverse/profiles/oem-opp-port2-port33-profile.json",
+      "bytes": 50038,
+      "sha256": "cfa8efc9d91caebdd41d78ccfc9e8ebaddbea7798b34372f9860e219f2e6613d"
     },
     {
       "path": "reverse/profiles/oem-pie-v300-init-trace.json",
@@ -520,13 +565,13 @@
     },
     {
       "path": "tools/ram-boot/build_lsw_diagnostic_pair.py",
-      "bytes": 20158,
-      "sha256": "595f7fd38996158571eace20855ea941935b0c2308c43749b5e1c402478d4bb1"
+      "bytes": 20511,
+      "sha256": "d794d17aeedcd0dfd232cf19ef3683112b00578fb49ece950fee8fc193b9a86d"
     },
     {
       "path": "tools/ram-boot/diagnose.sh",
-      "bytes": 9504,
-      "sha256": "3c186ad51bd5bcdfa98f0698c8ceb765b8e9fbb4bc68b93c8a929171e91f3f52"
+      "bytes": 9555,
+      "sha256": "ac9d34c24c2e3abc0c7761b7a827dec75def4b582c14f64f8af8d7e9df33be0c"
     },
     {
       "path": "tools/ram-boot/driver-test.c",
@@ -551,7 +596,7 @@
     {
       "path": "tools/ram-boot/lan1-ethtool-read.c",
       "bytes": 3101,
-      "sha256": "fa45625d58f8ecf5fe4aa1e390cb934f62481f1a73706f0c219582778beac99b"
+      "sha256": "abfa8827aba23c158f301b2649d4f215780f735c5a129ed17400b407fb6945eb"
     },
     {
       "path": "tools/ram-boot/lan1-network-test.c",
@@ -561,12 +606,12 @@
     {
       "path": "tools/ram-boot/module-pins.inc",
       "bytes": 521,
-      "sha256": "4499ab52f1781838be43fbd3ff193f47cb0bedb3b23c7401d857e27d3021f216"
+      "sha256": "dc206715ebdf7560cdb9da980b1d335cb032c8865a4c4db44bbfd9e7775b8601"
     },
     {
       "path": "tools/ram-boot/module-pins.json",
       "bytes": 1216,
-      "sha256": "8855638a628f6b256dde8b65b093411c116a83617fdc309b6cdfae7c8e3602be"
+      "sha256": "e4dccdc3f6c0797a30c3173771aa6b8d398324329483a2907d20d1107532d4c1"
     },
     {
       "path": "tools/ram-boot/oem_ifc_init_trace.json",
