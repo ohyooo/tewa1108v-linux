@@ -2,7 +2,7 @@
 
 TEWA-1108V 的 Linux 7.3.5 ARM64 适配、LAN1 驱动和原厂模块逆向研究
 
-当前可以 RAM 启动 Linux 7.3.5、运行 Debian ARMEL 用户态并装入八个模块，LAN1 尚不能正常收发，`ndo_open=-13`，最终网络验收为 `0/4`
+当前可以 RAM 启动 Linux 7.3.5、运行 Debian ARMEL 用户态并装入八个模块，LAN1 已能 `ndo_open=0`、UP、1000Mbps全双工并发布8个RX ring，但 TX completion 停滞后触发 DMA 隔离，尚不能正常收发，最终网络验收为 `0/4`
 
 ## 硬件范围
 

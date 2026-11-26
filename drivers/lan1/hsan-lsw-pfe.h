@@ -138,4 +138,6 @@ struct hsan_pfe_lifecycle_snapshot {
     u32 last_errno; /* positive errno of the first failed write stage */
 };
 int hsan_lsw_pfe_lifecycle_snapshot(struct hsan_pfe_lifecycle_snapshot *out);
+/* Exact cold-boot CPU route image only; not offload/traffic/STOP acceptance. */
+bool hsan_lsw_pfe_cpu_bootstrap_ready(void);
 #endif

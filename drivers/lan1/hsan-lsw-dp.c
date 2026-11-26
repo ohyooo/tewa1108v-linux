@@ -2374,6 +2374,18 @@ static int hsan_dp_probe_locked(struct platform_device *pdev)
 		}
 		dev_warn(&pdev->dev, "DP 4-command register init issued; no FAM/queue/PFE readiness\n");
 	}
+    if (of_property_read_bool(pdev->dev.of_node,
+                              "hsan,experimental-enable-ips-before-fam")) {
+        if (!state->boot_reset_completed || !request_fam_hw ||
+            !request_routing || !request_pie_map) {
+            ret = -EPERM;
+            goto rollback;
+        }
+        ret = hsan_lsw_ips_boot_enable();
+        if (ret)
+            goto rollback;
+        dev_info(&pdev->dev, "OEM IPS boot enable verified before FAM init; PIE RX remains disabled\n");
+    }
     if (request_fam_hw) {
         state->init_stage = HSAN_DP_INIT_FAM;
         ret = hsan_dp_program_oem_fam(pdev, state);
@@ -2403,6 +2415,18 @@ static int hsan_dp_probe_locked(struct platform_device *pdev)
         ret = hsan_dp_program_pie_v300_map(pdev, state);
         if (ret)
             goto rollback;
+    }
+    if (of_property_read_bool(pdev->dev.of_node,
+                              "hsan,experimental-program-ips-queues")) {
+        if (!state->boot_reset_completed || !state->fam_hw_ack_seen ||
+            !state->queue_routing_verified || !state->pie_map_hw_committed) {
+            ret = -EPERM;
+            goto rollback;
+        }
+        ret = hsan_lsw_ips_queue_init();
+        if (ret)
+            goto rollback;
+        dev_info(&pdev->dev, "OEM IPS queues verified: 8 registers; final enable deferred until PIE rings published\n");
     }
 	state->init_stage = HSAN_DP_INIT_PLAN_COMPLETE;
 	mutex_lock(&hsan_dp_owner_lock);

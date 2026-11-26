@@ -1370,6 +1370,117 @@ EXPORT_SYMBOL_GPL(hsan_lsw_fam_cpu_stop_fence);
  * It is solely a CPU MMIO publication ordering contract, NOT an IOMMU,
  * DMA engine, bus write completion, or HW STOP/drain acknowledgement.
  */
+/* OEM hi_ips_queue_init, executed once while PIE RX remains disabled. */
+static bool hsan_ips_queues_verified;
+static bool hsan_ips_init_attempted;
+static bool hsan_ips_enable_attempted;
+
+int hsan_lsw_ips_queue_init(void)
+{
+    static const u32 regs[] = {
+        0x44000078, 0x44000200, 0x4400020c, 0x44000218,
+        0x44000208, 0x44000214, 0x44000220, 0x44000634,
+    };
+    static const u32 values[] = {
+        0, 0x00100001, 0x00113f00, 0x001200fe,
+        0x0007ffff, 0x0007ffff, 0x0007ffff, 0x00011207,
+    };
+    struct hsan_bank *banks[ARRAY_SIZE(regs)];
+    u32 offsets[ARRAY_SIZE(regs)];
+    unsigned long flags;
+    unsigned int i;
+    int ret = 0;
+
+    if (!READ_ONCE(experimental_allow_lsw_writes))
+        return -EACCES;
+    spin_lock_irqsave(&hsan_lsw_lock, flags);
+    if (!hsan_lsw_cpu_write_allowed_locked()) {
+        ret = -ESHUTDOWN;
+        goto out;
+    }
+    if (hsan_ips_init_attempted) {
+        ret = -EALREADY;
+        goto out;
+    }
+    for (i = 0; i < ARRAY_SIZE(regs); i++) {
+        ret = hsan_lsw_access_locked(regs[i], &banks[i], &offsets[i]);
+        if (ret)
+            goto out;
+    }
+    hsan_ips_init_attempted = true;
+    for (i = 0; i < ARRAY_SIZE(regs); i++) {
+        writel(values[i], banks[i]->regs + offsets[i]);
+        if (readl(banks[i]->regs + offsets[i]) != values[i]) {
+            ret = -EUCLEAN;
+            goto out;
+        }
+    }
+    hsan_ips_queues_verified = true;
+out:
+    spin_unlock_irqrestore(&hsan_lsw_lock, flags);
+    return ret;
+}
+EXPORT_SYMBOL_GPL(hsan_lsw_ips_queue_init);
+
+/* OEM hi_dp_probe @0xfb4 enables IPS before FAM init and queue init.
+ * Called only after the owner's verified cold reset; PIE RX is disabled.
+ */
+int hsan_lsw_ips_boot_enable(void)
+{
+    struct hsan_bank *bank;
+    unsigned long flags;
+    u32 offset;
+    int ret;
+
+    if (!READ_ONCE(experimental_allow_lsw_writes))
+        return -EACCES;
+    spin_lock_irqsave(&hsan_lsw_lock, flags);
+    if (!hsan_lsw_cpu_write_allowed_locked()) {
+        ret = -ESHUTDOWN;
+        goto out;
+    }
+    if (hsan_ips_enable_attempted) {
+        ret = -EALREADY;
+        goto out;
+    }
+    ret = hsan_lsw_access_locked(0x4400007c, &bank, &offset);
+    if (ret)
+        goto out;
+    hsan_ips_enable_attempted = true;
+    writel(1, bank->regs + offset);
+    ret = readl(bank->regs + offset) == 1 ? 0 : -EUCLEAN;
+out:
+    spin_unlock_irqrestore(&hsan_lsw_lock, flags);
+    return ret;
+}
+EXPORT_SYMBOL_GPL(hsan_lsw_ips_boot_enable);
+
+/* Caller holds the FAM publication guard: never recursively acquire it. */
+int hsan_lsw_ips_enable_guarded(struct hsan_lsw_fam_publish_guard *guard)
+{
+    struct hsan_bank *bank;
+    u32 offset;
+    int ret;
+
+    if (!guard || !guard->held)
+        return -EINVAL;
+    lockdep_assert_held(&hsan_lsw_lock);
+    if (!READ_ONCE(experimental_allow_lsw_writes) ||
+        !hsan_ips_queues_verified)
+        return -EACCES;
+    if (!hsan_lsw_cpu_write_allowed_locked())
+        return -ESHUTDOWN;
+    ret = hsan_lsw_access_locked(0x4400007c, &bank, &offset);
+    if (ret)
+        return ret;
+    if (!hsan_ips_enable_attempted) {
+        hsan_ips_enable_attempted = true;
+        writel(1, bank->regs + offset);
+    }
+    return readl(bank->regs + offset) == 1 ? 0 : -EUCLEAN;
+}
+EXPORT_SYMBOL_GPL(hsan_lsw_ips_enable_guarded);
+
 int hsan_lsw_fam_publish_begin(struct hsan_lsw_fam_publish_guard *guard)
 {
     if (!guard)

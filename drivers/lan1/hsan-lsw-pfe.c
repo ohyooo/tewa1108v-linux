@@ -308,6 +308,9 @@ struct hsan_pfe_state {
     u32 mcc_hw_rows_written;
 	bool global_writes_attempted;
     bool global_writes_completed;
+    bool lan1_opp_verified;
+    bool lan1_pub_verified;
+    bool ifc_tag_verified;
     u32 pub_gro_entries;
     bool pub_gro_count_known;
     bool l3intf_plan_valid;
@@ -666,6 +669,25 @@ int hsan_lsw_pfe_lifecycle_snapshot(struct hsan_pfe_lifecycle_snapshot *out)
     return 0;
 }
 EXPORT_SYMBOL_GPL(hsan_lsw_pfe_lifecycle_snapshot);
+
+bool hsan_lsw_pfe_cpu_bootstrap_ready(void)
+{
+    struct hsan_pfe_state *p;
+    bool ready;
+
+    mutex_lock(&hsan_pfe_owner_lock);
+    p = hsan_pfe_owner;
+    ready = p && p->clock_on && !p->probe_quarantined &&
+        p->global_writes_completed && p->lan1_opp_verified &&
+        p->lan1_pub_verified && p->ifc_tag_verified &&
+        p->ifc_rows_committed == HSAN_PFE_IFC_DEFAULT_ROWS &&
+        p->ifc_rows_window_readback == HSAN_PFE_IFC_DEFAULT_ROWS &&
+        !p->ifc_late_window_drift_latched &&
+        !hsan_lsw_dp_fam_cpu_fenced();
+    mutex_unlock(&hsan_pfe_owner_lock);
+    return ready;
+}
+EXPORT_SYMBOL_GPL(hsan_lsw_pfe_cpu_bootstrap_ready);
 
 static const struct hsan_lsw_window hsan_pfe_windows[] = {
 	{0x00, "ifc",     0x16100000U, 0x80000U},
@@ -1266,8 +1288,11 @@ static int hsan_pfe_preflight_ofc_control(struct device *dev,
     struct hsan_dp_queue_snapshot q;
     int ret;
 
-    if (!state->clock_on || !state->ofc_shadow_registered[0] ||
-        !state->ofc_shadow_registered[1] || !state->ofc_dynamic_entries)
+    /* This masked control prelude addresses no OFC table entries.
+     * Runtime table capacity remains unknown and is not fabricated here.
+     * Keep clock, FAM/queue handoff and explicit control opt-in checks.
+     */
+    if (!state->clock_on)
         return -ENODATA;
     ret = hsan_lsw_dp_get_queue(10, &q);
     if (ret)
@@ -2064,6 +2089,7 @@ static int hsan_pfe_program_ifc_defaults(struct platform_device *pdev,
             ret = -EUCLEAN;
             goto out;
         }
+        state->ifc_tag_verified = true;
         dev_info(dev, "IFC OEM tag callback image verified: index=%u bytes=12 entries=1\n",
                  state->ifc_hash_observed_start);
     }
@@ -2799,9 +2825,13 @@ static int hsan_pfe_probe_locked(struct platform_device *pdev)
 	ret = hsan_pfe_lan1_opp(pdev, true);
 	if (ret)
 		goto rollback;
+    state->lan1_opp_verified = of_property_read_bool(pdev->dev.of_node,
+                                  "hsan,experimental-program-lan1-opp");
 	ret = hsan_pfe_lan1_pub(pdev, true);
 	if (ret)
 		goto rollback;
+    state->lan1_pub_verified = of_property_read_bool(pdev->dev.of_node,
+                                  "hsan,experimental-program-lan1-pub");
     if (request_globals) {
         ret = hsan_pfe_fam_fence_guard(state, 3);
         if (ret)

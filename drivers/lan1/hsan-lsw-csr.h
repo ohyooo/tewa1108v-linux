@@ -97,6 +97,9 @@ struct hsan_lsw_fam_publish_guard {
     bool held;
 };
 int hsan_lsw_fam_publish_begin(struct hsan_lsw_fam_publish_guard *guard);
+int hsan_lsw_ips_queue_init(void);
+int hsan_lsw_ips_boot_enable(void);
+int hsan_lsw_ips_enable_guarded(struct hsan_lsw_fam_publish_guard *guard);
 /* A completed TX mapping can be unmapped only after full-batch descriptor
  * validation AND admission under the shared FAM STOP lock. Unlike publish
  * begin, this counts releases separately. Use publish_end for unlocking.

@@ -19,6 +19,11 @@
       "sha256": "baf03cd77c9bf352862d56e4a65f1c8f1e2346a80d262276a83c03c533d00ca7"
     },
     {
+      "path": "docs/lan1-progress.md",
+      "bytes": 1327,
+      "sha256": "148db5ba853928fc2b4911235ba0e81833bb1f20e8c16bfe63361d5820b6d01b"
+    },
+    {
       "path": "docs/reverse-engineering.md",
       "bytes": 2089,
       "sha256": "e3889ff7c8e4ae235564c84fe533055107d99f4a46c75652e5845fcbc9b876aa"
@@ -50,18 +55,18 @@
     },
     {
       "path": "drivers/lan1/hsan-lsw-csr.c",
-      "bytes": 83390,
-      "sha256": "6399298167ba9fa6570163711fa2cb3d144863e15d09fb8d9f450df19e1cca43"
+      "bytes": 86682,
+      "sha256": "c5460e48f67c00187416ca51bef15bdd5c6b5404e29d7a75d4c46cba2eba7205"
     },
     {
       "path": "drivers/lan1/hsan-lsw-csr.h",
-      "bytes": 10288,
-      "sha256": "33a5a8359782ea6e16a34ec120efa9036980bb6eeac99df1e8c4b41812e5ad4f"
+      "bytes": 10434,
+      "sha256": "97b3a41819d87174dd095a6805598788ae87785a68fa675a550b02c2b6405571"
     },
     {
       "path": "drivers/lan1/hsan-lsw-dp.c",
-      "bytes": 90592,
-      "sha256": "cd8e69c5ecad9116402b1ae5581b2eec8a47f66871c397102b3b8bed9062d60b"
+      "bytes": 91638,
+      "sha256": "9736e1a05e7f00d09471e17c4fd4e2428b6a5c09166dc7defeafc2faa0bce0c9"
     },
     {
       "path": "drivers/lan1/hsan-lsw-dp.h",
@@ -75,13 +80,13 @@
     },
     {
       "path": "drivers/lan1/hsan-lsw-pfe.c",
-      "bytes": 116832,
-      "sha256": "f5039d70043b7ec758e1b543a27ce9236428a954d0cdff1bc5e51c369e087a88"
+      "bytes": 118013,
+      "sha256": "36d355f4b7730abda9d71ae8b7a457b4c84d8082de09e1987aad19cd3d9a7519"
     },
     {
       "path": "drivers/lan1/hsan-lsw-pfe.h",
-      "bytes": 6314,
-      "sha256": "aa496c34570b8b94210f81561802f2e36392624b20e6ed895ce316b038617d47"
+      "bytes": 6440,
+      "sha256": "a03f3fd5c552d701ac53d3ec40c3e27e4b192aef6176cf3bb4eaa8ce436e8bbc"
     },
     {
       "path": "drivers/lan1/hsan-lsw-platform.c",
@@ -100,8 +105,8 @@
     },
     {
       "path": "drivers/lan1/hsan-net-v300.c",
-      "bytes": 174949,
-      "sha256": "a1972ab637f278ccfddf42f350e8e929ed1fefb81e013d9fd59f4aab0b8294d1"
+      "bytes": 184221,
+      "sha256": "2b4ca5732fa713cafd22d00abf4dea984b8099797e35f11a16bb86ede66b8922"
     },
     {
       "path": "drivers/lan1/hsan-pfe-l3intf-plan.h",
@@ -140,13 +145,13 @@
     },
     {
       "path": "evidence/driver-build.log",
-      "bytes": 364,
-      "sha256": "578dfa51979025aa68f0baae86aaca62840c3f48f48f565210dc14cc54ce6535"
+      "bytes": 366,
+      "sha256": "77edf5eaea67c0e23ade68762db9bca274fcb82207e70d4d3a4495b5e16b16ce"
     },
     {
       "path": "evidence/latest-board-result.json",
-      "bytes": 1429,
-      "sha256": "a2881d33a0d801f534fab36898587f2b1e1ebc179969bf149d2d3b72a4c50b91"
+      "bytes": 6025,
+      "sha256": "dc1c5fd5ba77e7d13dda70e7e6b001eff6bd12fe5d756e34b18bf63545382d7d"
     },
     {
       "path": "kernel/configs/tewa1108v.config",
@@ -160,8 +165,8 @@
     },
     {
       "path": "README.md",
-      "bytes": 3056,
-      "sha256": "4677338c2850389283477e648676aafce24c397f2ecec37b34aa55d59386ca6b"
+      "bytes": 3153,
+      "sha256": "92f60f91a38ae710c56b7c50c9681850bee704ff89b67ded7fb2e027ceb1bd47"
     },
     {
       "path": "reverse/disassembly/oem-acp.dis",
@@ -335,13 +340,13 @@
     },
     {
       "path": "tools/ram-boot/build_lsw_diagnostic_pair.py",
-      "bytes": 16657,
-      "sha256": "8aef5491baeb1fcf7428c782142958bf272e217fdfc029344d39e63764fd2a67"
+      "bytes": 18495,
+      "sha256": "c1ea1286d72b35c70cf533675d742555d574d1b6a28d001bd9dd1d131c5d9979"
     },
     {
       "path": "tools/ram-boot/diagnose.sh",
-      "bytes": 8563,
-      "sha256": "58fb0fae358959fb1d8762e8f7fd5f76fe342a4188880488721fac695d938fcd"
+      "bytes": 9076,
+      "sha256": "3a5362e1ce73bf59a82d4a41a1a9af1cc740fdd25f60bc4f7d4fcd0d859ae7c4"
     },
     {
       "path": "tools/ram-boot/driver-test.c",
@@ -364,14 +369,19 @@
       "sha256": "6cc9c204c0590c64e6a893f48dd35dc0bcfc18464c01e9073831705924d6b82f"
     },
     {
+      "path": "tools/ram-boot/lan1-network-test.c",
+      "bytes": 5153,
+      "sha256": "430151a991bfec89333faa395c2995b35c8d04ad7e60b5a03e01dba65db3707f"
+    },
+    {
       "path": "tools/ram-boot/module-pins.inc",
-      "bytes": 520,
-      "sha256": "c4dff74bad2556337ab4f62507056ff9e88399bd4ff34dc5680dc60dc9f3af05"
+      "bytes": 521,
+      "sha256": "358ac250cf981dcd8c6091eee3e0ba6e388c164d4619672faa1437454097c52c"
     },
     {
       "path": "tools/ram-boot/module-pins.json",
-      "bytes": 1215,
-      "sha256": "3bd78cac3d1371662048194bb500e8d6645888aac4fce70963e673f1d608e4b7"
+      "bytes": 1216,
+      "sha256": "d793eaca94209c8a1c3803432e55992729ca8175aeecb045c5b91d920bd8e6ac"
     },
     {
       "path": "tools/ram-boot/oem_ifc_init_trace.json",

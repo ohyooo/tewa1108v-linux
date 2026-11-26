@@ -38,8 +38,14 @@ def prop(blob, path, key, value):
         end = found[0] + ((found[1] + 3) & ~3)
     else:
         end = start
-    record = struct.pack(">III", 3, len(value), index)
-    record += value + bytes((-len(value)) % 4)
+    if value is None:
+        if not found:
+            raise ValueError("FDT deletion target absent: " + path + "/" + key)
+        record = b""
+        extra = b""
+    else:
+        record = struct.pack(">III", 3, len(value), index)
+        record += value + bytes((-len(value)) % 4)
     delta = len(record) - (end - start)
     result = bytearray(blob[:start] + record + blob[end:h[3] + h[8]])
     result += extra + blob[h[3] + h[8]:]
@@ -50,7 +56,10 @@ def prop(blob, path, key, value):
     struct.pack_into(">10I", result, 0, *h)
     result, _, after = read_blob(bytes(result), 0)
     expected = {n: dict(p) for n, p in before.items()}
-    expected[path][key] = value
+    if value is None:
+        del expected[path][key]
+    else:
+        expected[path][key] = value
     if after != expected:
         raise ValueError("Unexpected FDT mutation: " + path + "/" + key)
     return result
@@ -59,7 +68,8 @@ def prop(blob, path, key, value):
 def build(base_payload, artifacts, helper, diagnostic, output, fam_shadow=False,
           boot_reset=False, arm_fam=False, eqm=False, queue_routing=False,
           pie_reset=False, pie_map=False, pfe_globals=False, pie_acp=False,
-          pfe_opp=False, lan1_opp=False, lan1_pub=False, cpu_ifc=False):
+          pfe_opp=False, lan1_opp=False, lan1_pub=False, cpu_ifc=False,
+          cpu_diagnostic=False, noncoherent_dma=False):
     if arm_fam and not (fam_shadow and boot_reset):
         raise ValueError("FAM hardware init requires CPU staging and cold boot reset")
     if eqm and not arm_fam:
@@ -80,6 +90,10 @@ def build(base_payload, artifacts, helper, diagnostic, output, fam_shadow=False,
         raise ValueError("LAN1 PUB requires global initialization")
     if cpu_ifc and not (lan1_pub and lan1_opp):
         raise ValueError("CPU IFC requires the LAN1 PUB and OPP hardware plans")
+    if cpu_diagnostic and not (cpu_ifc and pie_acp):
+        raise ValueError("CPU DMA diagnostic requires the complete IFC/OPP/PUB/ACP bootstrap")
+    if noncoherent_dma and not cpu_diagnostic:
+        raise ValueError("Noncoherent DMA requires CPU diagnostic mode")
     pair = json.loads((base_payload / "PAIR.json").read_text(encoding="utf-8"))
     root = (base_payload / pair["initrd"]["name"]).read_bytes()
     carrier = (base_payload / pair["carrier"]["name"]).read_bytes()
@@ -156,6 +170,21 @@ def build(base_payload, artifacts, helper, diagnostic, output, fam_shadow=False,
         edits["/lsw_dp"]["hsan,experimental-program-queue-routing"] = b""
     if pie_reset:
         edits["/pie@12080000"] = {"hsan,experimental-reset-pie-at-boot": b""}
+    if cpu_diagnostic:
+        edits["/lsw_dp"]["hsan,experimental-program-ips-queues"] = b""
+        edits["/lsw_dp"]["hsan,experimental-enable-ips-before-fam"] = b""
+        edits["/lsw_pfe"]["hsan,experimental-program-ofc-control"] = b""
+        edits["/pie@12080000"].update({
+            "hsan,experimental-dma-enable": b"",
+            "hsan,experimental-cpu-lan1-diagnostic": b"",
+            "hsan,experimental-program-pie-global-registers": b"",
+        })
+        edits["/gemac@14400000"] = {
+            "hsan,experimental-program-oem-gemac-link": b"",
+        }
+    if noncoherent_dma:
+        edits["/pie@12080000"]["dma-coherent"] = None
+        edits["/pie@12080000"]["hsan,experimental-noncoherent-dma"] = b""
     if pie_map:
         edits["/lsw_dp"].update({
             "hsan,observed-pie-gro-channels": struct.pack(">2I", 4, 4),
@@ -280,6 +309,9 @@ def build(base_payload, artifacts, helper, diagnostic, output, fam_shadow=False,
     pair["lan1_opp_requested"] = lan1_opp
     pair["lan1_pub_requested"] = lan1_pub
     pair["cpu_ifc_requested"] = cpu_ifc
+    pair["cpu_lan1_diagnostic_requested"] = cpu_diagnostic
+    pair["pie_global_init_requested"] = cpu_diagnostic
+    pair["noncoherent_dma_requested"] = noncoherent_dma
     if ifc_profile:
         pair["ifc_profile"] = ifc_profile
     if eqm:
@@ -293,6 +325,8 @@ def build(base_payload, artifacts, helper, diagnostic, output, fam_shadow=False,
         pair["purpose"] = "OEM boot reset and CPU-owned FAM staging; no DMA start"
     if eqm:
         pair["purpose"] = "FAM and ordinary EQM initialization/readback; auxiliary queues/PIE/PFE/GRO/STOP remain unqualified"
+    if cpu_diagnostic:
+        pair["purpose"] = "Single cold-boot CPU LAN1 open diagnostic with eight owned RX rings; aggregate delivery/traffic/STOP acceptance not claimed"
     pair["fam_shadow_provenance"] = (
         "OEM /proc memory/config and fam_status; hi_fam_init_buf .data+0x70; "
         "geometry provenance only; hardware ownership requires same-boot ACK evidence"
@@ -339,10 +373,13 @@ if __name__ == "__main__":
     parser.add_argument("--lan1-opp", action="store_true")
     parser.add_argument("--lan1-pub", action="store_true")
     parser.add_argument("--cpu-ifc", action="store_true")
+    parser.add_argument("--cpu-diagnostic", action="store_true")
+    parser.add_argument("--noncoherent-dma", action="store_true")
     args = parser.parse_args()
     result = build(args.base_payload, args.artifacts, args.helper, args.diagnostic,
                    args.output, args.fam_shadow, args.boot_reset, args.arm_fam,
                    args.eqm, args.queue_routing, args.pie_reset, args.pie_map,
                    args.pfe_globals, args.pie_acp, args.pfe_opp, args.lan1_opp,
-                   args.lan1_pub, args.cpu_ifc)
+                   args.lan1_pub, args.cpu_ifc, args.cpu_diagnostic,
+                   args.noncoherent_dma)
     print(json.dumps({k: result[k] for k in ("initrd", "carrier")}, indent=2))

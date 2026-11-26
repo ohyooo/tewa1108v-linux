@@ -14,6 +14,7 @@
 #include <linux/bitops.h>
 #include <linux/delay.h>
 #include <linux/dma-mapping.h>
+#include <linux/dma-map-ops.h>
 #include <linux/etherdevice.h>
 #include <linux/ethtool.h>
 #include <linux/interrupt.h>
@@ -123,6 +124,8 @@ struct hsan_v300_rx_queue {
     bool wptr_match_valid;
     enum hsan_rx_wptr_cmp_state wptr_cmp_state;
     u32 rx_count;
+    u32 buffer_size;
+    u8 ring_order;
     unsigned int channel;
     int irq;
     bool irq_ok; /* published/cleared under parent->tx_lock */
@@ -155,10 +158,12 @@ enum hsan_net_open_stage {
 
 struct hsan_v300 {
 	bool boot_reset_verified;
+	bool boot_globals_verified;
 	struct device *dev;
 	struct net_device *ndev;
 	void __iomem *regs;
-	struct hsan_v300_rx_queue rxq[HSAN_NET_RX_CHANNELS];
+	struct hsan_v300_rx_queue rxq[HSAN_OEM_RX_CHANNELS];
+    unsigned int rx_channels;
 	struct delayed_work watchdog;
 	spinlock_t tx_lock;
 	struct hsan_v300_tx *tx;
@@ -347,7 +352,7 @@ static void hsan_mask_owned_rx_irqs(struct hsan_v300 *p)
 {
     unsigned int ch;
 
-    for (ch = 0; ch < HSAN_NET_RX_CHANNELS; ch++)
+    for (ch = 0; ch < p->rx_channels; ch++)
         hsan_w32(p, hsan_rx_irq_reg(ch, true), BIT(0));
 }
 
@@ -387,7 +392,7 @@ static bool hsan_unused_rx_prearm_clean(struct hsan_v300 *p)
     unsigned int ch;
 
     p->other_rx_prearm_checks++;
-    for (ch = HSAN_NET_RX_CHANNELS; ch < HSAN_OEM_RX_CHANNELS; ch++) {
+    for (ch = p->rx_channels; ch < HSAN_OEM_RX_CHANNELS; ch++) {
         u32 dirty = hsan_other_rx_dirty(p, ch);
 
         if (dirty) {
@@ -412,7 +417,7 @@ static bool hsan_unused_rx_runtime_clean_locked(struct hsan_v300 *p)
     unsigned int ch;
 
     p->other_rx_runtime_checks++;
-    for (ch = HSAN_NET_RX_CHANNELS; ch < HSAN_OEM_RX_CHANNELS; ch++) {
+    for (ch = p->rx_channels; ch < HSAN_OEM_RX_CHANNELS; ch++) {
         u32 dirty = hsan_other_rx_dirty(p, ch);
 
         if (dirty) {
@@ -666,6 +671,8 @@ static bool hsan_rx_foreign_peer_clean_locked(struct hsan_v300_rx_queue *q,
     unsigned int partner = HSAN_OEM_RX_CHANNELS - 1 - q->channel;
     u32 dirty;
 
+    if (partner < p->rx_channels)
+        return true; /* Both queues have independent owned rings/NAPI. */
     p->other_rx_runtime_checks++;
     if (check_ring) {
         dirty = hsan_other_rx_dirty(p, partner);
@@ -739,9 +746,9 @@ hsan_rx_probe_completion_locked(struct hsan_v300_rx_queue *q, unsigned int slot,
     if (unlikely(READ_ONCE(desc[3]) & BIT(2)))
         return HSAN_RX_PROBE_OWNER;
     len = get_unaligned_le16(desc);
-    if (unlikely(!s->buffer || !hsan_dma32(s->dma, HSAN_BUF_SIZE)))
+    if (unlikely(!s->buffer || !hsan_dma32(s->dma, q->buffer_size)))
         return HSAN_RX_PROBE_UNOWNED;
-    if (unlikely(len > HSAN_BUF_SIZE))
+    if (unlikely(len > q->buffer_size))
         return HSAN_RX_PROBE_OVERSIZE;
     if (unlikely(get_unaligned_le32(desc + 4) != (u32)s->dma))
         return HSAN_RX_PROBE_ADDRESS;
@@ -1329,14 +1336,14 @@ static int hsan_napi_poll(struct napi_struct *napi, int budget)
                          */
                         if (skb) {
                             dma_sync_single_for_cpu(p->dev, s->dma,
-                                                    HSAN_BUF_SIZE,
+                                                    q->buffer_size,
                                                     DMA_FROM_DEVICE);
                             p->rx_cpu_sync_admissions++;
                             cpu_sync_admitted = true;
                             skb_put_data(skb, s->buffer, len);
                             p->rx_cpu_copied_bytes += len;
                             dma_sync_single_for_device(p->dev, s->dma,
-                                                       HSAN_BUF_SIZE,
+                                                       q->buffer_size,
                                                        DMA_FROM_DEVICE);
                         }
                         q->rx_cons++;
@@ -1497,7 +1504,7 @@ static int hsan_napi_poll(struct napi_struct *napi, int budget)
 	return work_done;
 }
 
-static irqreturn_t hsan_rx_irq(int irq, void *data)
+static irqreturn_t hsan_rx_irq_one(int irq, void *data)
 {
     struct hsan_v300_rx_queue *q = data;
     struct hsan_v300 *p = q->parent;
@@ -1572,6 +1579,22 @@ complete_prep:
     return IRQ_HANDLED;
 }
 
+/* One physical IRQ serves an ordinary queue and its GRO peer. Each
+ * queue independently masks/ACKs its own status and schedules its NAPI.
+ */
+static irqreturn_t hsan_rx_irq(int irq, void *data)
+{
+    struct hsan_v300_rx_queue *q = data;
+    unsigned int partner = HSAN_OEM_RX_CHANNELS - 1 - q->channel;
+    irqreturn_t first = hsan_rx_irq_one(irq, q);
+    irqreturn_t second = IRQ_NONE;
+
+    if (partner < q->parent->rx_channels)
+        second = hsan_rx_irq_one(irq, &q->parent->rxq[partner]);
+    return first == IRQ_HANDLED || second == IRQ_HANDLED ?
+           IRQ_HANDLED : IRQ_NONE;
+}
+
 /* Caller holds the STOP/IRQ lock. The watchdog fallback must mask BEFORE
  * scheduling each NAPI too, including when an IRQ is present; otherwise
  * a parallel ISR could repeatedly assert the same unmasked pending bit.
@@ -1602,7 +1625,7 @@ static void hsan_poll_owned_rx_locked(struct hsan_v300 *p)
         return;
     }
 
-    for (ch = 0; ch < HSAN_NET_RX_CHANNELS; ch++) {
+    for (ch = 0; ch < p->rx_channels; ch++) {
         struct hsan_v300_rx_queue *q = &p->rxq[ch];
         struct hsan_lsw_fam_publish_guard service;
         u32 mask_reg = hsan_rx_irq_reg(ch, true);
@@ -1832,6 +1855,88 @@ static void hsan_watchdog(struct work_struct *w)
         if (abort_reason)
             hsan_quarantine_datapath_locked(p, abort_code, abort_reason);
         spin_unlock_irqrestore(&p->tx_lock, flags);
+        if (stall_warn && of_property_read_bool(p->dev->of_node,
+                                  "hsan,experimental-cpu-lan1-diagnostic")) {
+            struct hsan_lsw_fam_publish_guard obs;
+            u8 desc[HSAN_DESC_BYTES];
+            u32 controls[4];
+            u64 counters[14] = { 0 };
+            unsigned int i, j, sampled = 0;
+            int counter_err = 0;
+
+            spin_lock_irqsave(&p->tx_lock, flags);
+            if (!hsan_lsw_fam_observe_begin(&obs)) {
+                dma_rmb();
+                memcpy(desc, hsan_tx_desc(p, tx_cons & p->tx_mask),
+                       sizeof(desc));
+                controls[0] = hsan_r32(p, 0x1000);
+                controls[1] = hsan_r32(p, 0x2200);
+                controls[2] = hsan_r32(p, HSAN_TX_CH + HSAN_CH_BASE);
+                controls[3] = hsan_r32(p, HSAN_TX_CH + HSAN_CH_RING);
+                /* OEM v300 DFX read command @0x27e4: type2 TX,
+                 * index0..13 channel0; distinct from counter-clear writes.
+                 * Bound busy polling, never replay a failed command.
+                 */
+                for (i = 0; i < ARRAY_SIZE(counters); i++) {
+                    u32 status = 0;
+                    unsigned int poll;
+
+                    for (poll = 0; poll < 1001; poll++) {
+                        status = hsan_r32(p, 0x1004);
+                        if (!(status & BIT(30)))
+                            break;
+                    }
+                    if (status & (BIT(30) | BIT(28))) {
+                        counter_err = -EBUSY;
+                        break;
+                    }
+                    hsan_w32(p, 0x1004, 0x40020000U | i);
+                    for (poll = 0; poll < 1001; poll++) {
+                        status = hsan_r32(p, 0x1004);
+                        if (!(status & BIT(30)))
+                            break;
+                    }
+                    if (status & (BIT(30) | BIT(28))) {
+                        counter_err = -EIO;
+                        break;
+                    }
+                    counters[i] = hsan_r32(p, 0x1010) |
+                                  ((u64)hsan_r32(p, 0x1014) << 32);
+                    sampled++;
+                }
+                hsan_lsw_fam_publish_end(&obs);
+                netdev_warn(p->ndev,
+                    "TX readonly snapshot: control=%08x/%08x base=%08x ring=%08x descriptor=%*phN\n",
+                    controls[0], controls[1], controls[2], controls[3],
+                    (int)sizeof(desc), desc);
+            }
+            spin_unlock_irqrestore(&p->tx_lock, flags);
+            netdev_warn(p->ndev, "PIE TX DFX read sampled=%u rc=%d\n",
+                        sampled, counter_err);
+            for (i = 0; i < sampled; i++)
+                netdev_warn(p->ndev, "PIE TX DFX index%u=%llu\n",
+                            i, (unsigned long long)counters[i]);
+            /* Same read-only counters as OEM ips_diag_get_cnt @0x63b0.
+             * No diagnostic command writes and no ownership changes.
+             */
+            for (i = 0; i < 11; i++) {
+                u32 counts[7] = { 0 };
+                int err = 0;
+
+                for (j = 0; j < ARRAY_SIZE(counts); j++) {
+                    err = hsan_lsw_read(0x4400101c + i * 28 + j * 4,
+                                        &counts[j]);
+                    if (err)
+                        break;
+                }
+                netdev_warn(p->ndev,
+                    "IPS readonly row%u rc=%d counts=%08x/%08x/%08x/%08x/%08x/%08x/%08x\n",
+                    i, err, counts[0], counts[1], counts[2], counts[3],
+                    counts[4], counts[5], counts[6]);
+                if (err)
+                    break;
+            }
+        }
         if (stall_warn)
             netdev_warn(p->ndev,
                 "TX stall 500ms: sw=%04x/%04x hw=%08x/%08x RX=%08x/%08x\n",
@@ -2092,14 +2197,14 @@ static void hsan_free_unstarted(struct hsan_v300 *p)
 
     if (WARN_ON_ONCE(p->dma_ever_started))
         return;
-    for (ch = 0; ch < HSAN_NET_RX_CHANNELS; ch++) {
+    for (ch = 0; ch < p->rx_channels; ch++) {
         struct hsan_v300_rx_queue *q = &p->rxq[ch];
 
         if (q->rx) {
             for (i = 0; i < q->rx_count; i++) {
                 if (!q->rx[i].buffer)
                     continue;
-                dma_unmap_single(p->dev, q->rx[i].dma, HSAN_BUF_SIZE,
+                dma_unmap_single(p->dev, q->rx[i].dma, q->buffer_size,
                                  DMA_FROM_DEVICE);
                 kfree(q->rx[i].buffer);
             }
@@ -2138,7 +2243,7 @@ static int hsan_alloc_queues(struct hsan_v300 *p)
     p->tx = kvcalloc(p->tx_count, sizeof(*p->tx), GFP_KERNEL);
     if (!p->tx)
         goto err;
-    for (ch = 0; ch < HSAN_NET_RX_CHANNELS; ch++) {
+    for (ch = 0; ch < p->rx_channels; ch++) {
         struct hsan_v300_rx_queue *q = &p->rxq[ch];
 
         q->rx_desc = dma_alloc_coherent(p->dev,
@@ -2155,17 +2260,17 @@ static int hsan_alloc_queues(struct hsan_v300 *p)
         for (i = 0; i < q->rx_count; i++) {
             struct hsan_v300_rx *slot = &q->rx[i];
 
-            slot->buffer = kmalloc(HSAN_BUF_SIZE, GFP_KERNEL);
+            slot->buffer = kmalloc(q->buffer_size, GFP_KERNEL);
             if (!slot->buffer)
                 goto err;
             slot->dma = dma_map_single(p->dev, slot->buffer,
-                                      HSAN_BUF_SIZE, DMA_FROM_DEVICE);
+                                      q->buffer_size, DMA_FROM_DEVICE);
             if (dma_mapping_error(p->dev, slot->dma)) {
                 kfree(slot->buffer);
                 slot->buffer = NULL;
                 goto err;
             }
-            if (!hsan_dma32(slot->dma, HSAN_BUF_SIZE)) {
+            if (!hsan_dma32(slot->dma, q->buffer_size)) {
                 ret = -ERANGE;
                 goto err;
             }
@@ -2182,7 +2287,7 @@ static void hsan_disable_owned_napi(struct hsan_v300 *p)
 {
     unsigned int ch;
 
-    for (ch = 0; ch < HSAN_NET_RX_CHANNELS; ch++) {
+    for (ch = 0; ch < p->rx_channels; ch++) {
         struct hsan_v300_rx_queue *q = &p->rxq[ch];
 
         if (q->napi_enabled) {
@@ -2196,7 +2301,7 @@ static void hsan_free_owned_irqs(struct hsan_v300 *p)
 {
     unsigned int ch;
 
-    for (ch = 0; ch < HSAN_NET_RX_CHANNELS; ch++) {
+    for (ch = 0; ch < p->rx_channels; ch++) {
         struct hsan_v300_rx_queue *q = &p->rxq[ch];
 
         if (q->irq_ok) {
@@ -2206,7 +2311,8 @@ static void hsan_free_owned_irqs(struct hsan_v300 *p)
              * Only the flag update is serialized with the poll tail:
              * napi_disable need not have waited for that tail to exit.
              */
-            free_irq(q->irq, q);
+            if (ch < HSAN_NET_RX_CHANNELS)
+                free_irq(q->irq, q);
             spin_lock_irqsave(&p->tx_lock, flags);
             q->irq_ok = false;
             spin_unlock_irqrestore(&p->tx_lock, flags);
@@ -2240,7 +2346,7 @@ static bool hsan_owned_rx_idle(struct hsan_v300 *p)
         p->rx_init_bad_fields = bad;
         return false;
     }
-    for (ch = 0; ch < HSAN_NET_RX_CHANNELS; ch++) {
+    for (ch = 0; ch < p->rx_channels; ch++) {
         u32 old_group = (route >> (2 * ch)) & 3;
 
         bad = 0;
@@ -2253,7 +2359,8 @@ static bool hsan_owned_rx_idle(struct hsan_v300 *p)
             bad |= BIT(0);
         if (hsan_r32(p, hsan_rx_chan_reg(ch, HSAN_CH_RING)))
             bad |= BIT(1);
-        if (old_group && old_group != ch)
+        if (old_group && old_group !=
+            (ch < HSAN_NET_RX_CHANNELS ? ch : HSAN_OEM_RX_CHANNELS - 1 - ch))
             bad |= BIT(3);
         if (hsan_r32(p, hsan_rx_chan_reg(ch, HSAN_CH_RPTR)) ||
             hsan_r32(p, hsan_rx_chan_reg(ch, HSAN_CH_WPTR)))
@@ -2281,28 +2388,35 @@ static bool hsan_program_rx_channel(struct hsan_v300_rx_queue *q)
     u32 limit_reg = HSAN_RX_BUFFER_LIMIT + ch * HSAN_OEM_RX_CH_STRIDE;
     u32 route = hsan_r32(p, HSAN_RX_IRQ_ROUTE);
     u32 bad = 0;
+    u32 group = ch < HSAN_NET_RX_CHANNELS ? ch : HSAN_OEM_RX_CHANNELS - 1 - ch;
+    u32 large = hsan_r32(p, HSAN_RX_LARGE_BUFFER);
 
     hsan_w32(p, hsan_rx_chan_reg(ch, HSAN_CH_BASE), (u32)q->rx_desc_dma);
-    hsan_w32(p, hsan_rx_chan_reg(ch, HSAN_CH_RING), HSAN_NET_RX_ORDER);
+    hsan_w32(p, hsan_rx_chan_reg(ch, HSAN_CH_RING), q->ring_order);
     hsan_w32(p, hsan_rx_chan_reg(ch, HSAN_CH_WPTR), 0);
-    hsan_w32(p, limit_reg, HSAN_BUF_SIZE >> 7);
-    hsan_w32(p, HSAN_RX_IRQ_ROUTE, route | ((ch & 3) << (2 * ch)));
+    hsan_w32(p, limit_reg, q->buffer_size >> 7);
+    hsan_w32(p, HSAN_RX_IRQ_ROUTE, route | (group << (2 * ch)));
+    large = q->buffer_size > 9600 ? large | BIT(ch) : large & ~BIT(ch);
+    hsan_w32(p, HSAN_RX_LARGE_BUFFER, large);
     hsan_rx_publish_producer_cursor(q);
     hsan_w32(p, hsan_rx_irq_reg(ch, false), BIT(0));
     hsan_w32(p, hsan_rx_irq_reg(ch, true), BIT(0));
     if (hsan_r32(p, hsan_rx_chan_reg(ch, HSAN_CH_BASE)) !=
         (u32)q->rx_desc_dma)
         bad |= BIT(0);
-    if (hsan_r32(p, hsan_rx_chan_reg(ch, HSAN_CH_RING)) != HSAN_NET_RX_ORDER)
+    if (hsan_r32(p, hsan_rx_chan_reg(ch, HSAN_CH_RING)) != q->ring_order)
         bad |= BIT(1);
-    if (hsan_r32(p, limit_reg) != HSAN_BUF_SIZE >> 7)
+    if (hsan_r32(p, limit_reg) != q->buffer_size >> 7)
         bad |= BIT(2);
-    if (((hsan_r32(p, HSAN_RX_IRQ_ROUTE) >> (2 * ch)) & 3) != ch)
+    if (((hsan_r32(p, HSAN_RX_IRQ_ROUTE) >> (2 * ch)) & 3) != group)
         bad |= BIT(3);
     if (!hsan_check_wptr_readback(p, q, hsan_rx_published_cursors(q)))
         bad |= BIT(4);
     if (!(hsan_r32(p, hsan_rx_irq_reg(ch, true)) & BIT(0)))
         bad |= BIT(5);
+    if (!!(hsan_r32(p, HSAN_RX_LARGE_BUFFER) & BIT(ch)) !=
+        (q->buffer_size > 9600))
+        bad |= BIT(6);
     if (bad) {
         p->rx_init_bad_channel = ch;
         p->rx_init_bad_fields = bad;
@@ -2431,6 +2545,77 @@ static int hsan_pie_boot_reset(struct platform_device *pdev, struct hsan_v300 *p
  * had partial ACP writes, so a clock bit ALONE cannot qualify DMA.
  * Program only on explicit cold-boot opt-in; open only verifies readback.
  */
+/* OEM v300 hi_pie_reg_init @25c8..2750 precedes ring publication.
+ * Cold reset alone does not install these controller fields. Keep RX
+ * disabled and every ring unpublished throughout this one-shot prelude.
+ */
+static int hsan_pie_boot_globals(struct hsan_v300 *p)
+{
+	static const struct { u32 offset, mask, value; } fields[] = {
+		{ 0x1000, 0x1c1, 0x1c0 },
+		{ 0x3208, U32_MAX, 125 },
+		{ 0x3204, U32_MAX, 0 },
+		{ 0x3200, 3, 0 }, /* OEM ordinary RX count=4, not single-RX mode */
+		{ 0x2200, BIT(22), 0 },
+		{ 0x3408, U32_MAX, 0 },
+		{ 0x3404, U32_MAX, 0 },
+	};
+	unsigned int i, ch;
+	u32 value;
+
+	if (!of_property_read_bool(p->dev->of_node,
+				  "hsan,experimental-program-pie-global-registers"))
+		return 0;
+	if (!p->boot_reset_verified ||
+	    (hsan_r32(p, HSAN_RX_GLOBAL) & HSAN_RX_GLOBAL_ENABLE) ||
+	    hsan_r32(p, HSAN_TX_CH + HSAN_CH_BASE))
+		return -EBUSY;
+	for (ch = 0; ch < HSAN_OEM_RX_CHANNELS; ch++)
+		if (hsan_r32(p, hsan_rx_chan_reg(ch, HSAN_CH_BASE)))
+			return -EBUSY;
+	for (i = 0; i < ARRAY_SIZE(fields); i++) {
+		value = hsan_r32(p, fields[i].offset);
+		hsan_w32(p, fields[i].offset,
+			 (value & ~fields[i].mask) | fields[i].value);
+		value = hsan_r32(p, fields[i].offset);
+		if ((value & fields[i].mask) != fields[i].value) {
+			dev_err(p->dev, "PIE global %#x readback=%#x mask=%#x expected=%#x\n",
+				fields[i].offset, value, fields[i].mask, fields[i].value);
+			return -EUCLEAN;
+		}
+	}
+	for (ch = 0; ch < HSAN_OEM_RX_CHANNELS; ch++) {
+		hsan_w32(p, 0x3210 + ch * 4, 3);
+		hsan_w32(p, 0x3310 + ch * 4, 8);
+		hsan_w32(p, 0x3290 + ch * 4, 2);
+		if (hsan_r32(p, 0x3210 + ch * 4) != 3 ||
+		    hsan_r32(p, 0x3310 + ch * 4) != 8 ||
+		    hsan_r32(p, 0x3290 + ch * 4) != 2) {
+			dev_err(p->dev, "PIE global threshold readback mismatch channel=%u\n", ch);
+			return -EUCLEAN;
+		}
+		/* OEM interrupt initialization includes W1C status writes;
+		 * validate the persistent masks, never invent a status ACK.
+		 */
+		hsan_w32(p, 0x380 + ch * 4, 1);
+		hsan_w32(p, 0x400 + ch * 4, 1);
+		hsan_w32(p, 0x180 + ch * 4, 1);
+		hsan_w32(p, 0x200 + ch * 4, 1);
+		if (!(hsan_r32(p, 0x400 + ch * 4) & 1) ||
+		    !(hsan_r32(p, 0x200 + ch * 4) & 1))
+			return -EUCLEAN;
+	}
+	/* OEM @2724..272c writes 0x3bff without a readback contract.
+	 * Actual cold-boot hardware reads zero after this write; it must
+	 * not be verified as a persistent configuration field.
+	 */
+	hsan_w32(p, 0x3600, 0x3bff);
+	p->boot_globals_verified = true;
+	dev_info(p->dev,
+		 "OEM PIE v300 globals verified: 7 fields, 24 thresholds, RX disabled, IRQs masked; 0x3600 submitted only\n");
+	return 0;
+}
+
 static bool hsan_acp_pie_attrs_ready(struct hsan_v300 *p, bool program)
 {
 	struct device_node *np = p->dev->of_node;
@@ -2439,10 +2624,18 @@ static bool hsan_acp_pie_attrs_ready(struct hsan_v300 *p, bool program)
 	unsigned int i;
 	int ret;
 
-	if (!of_property_read_bool(np, "dma-coherent")) {
-		dev_warn(p->dev, "ACP PIE coherent declaration absent; unsupported topology; DMA blocked\n");
-		return false;
-	}
+    if (of_property_read_bool(np, "hsan,experimental-noncoherent-dma")) {
+        /* Conservative Linux DMA cache maintenance, no ACP bypass.
+         * The FDT must omit dma-coherent before platform DMA setup.
+         */
+        if (of_property_read_bool(np, "dma-coherent") ||
+            dev_is_dma_coherent(p->dev))
+            return false;
+        dev_info(p->dev, "PIE diagnostic uses noncoherent Linux DMA cache maintenance\n");
+    } else if (!of_property_read_bool(np, "dma-coherent")) {
+        dev_warn(p->dev, "ACP PIE coherent declaration absent; DMA blocked\n");
+        return false;
+    }
 	/* The fixed-array OF helper accepts a longer property. Require the
 	 * exact byte length, not merely a valid prefix of nine tuples.
 	 */
@@ -2653,6 +2846,13 @@ static bool hsan_network_pipeline_ready(struct hsan_v300 *p)
      * A separately qualified minimal PIE-to-GEMAC path is still missing;
      * MMIO initialization or table shadows alone cannot substitute for it.
      */
+    /* A bounded CPU diagnostic uses the exact OPP/PUB/IFC bootstrap,
+     * without claiming that NAT/L2/L3 offload or hardware STOP works.
+     * DP ownership, map, clock, PHY and all ring checks still apply.
+     */
+    if (of_property_read_bool(p->dev->of_node,
+                             "hsan,experimental-cpu-lan1-diagnostic"))
+        return p->boot_globals_verified && hsan_lsw_pfe_cpu_bootstrap_ready();
     if (state.forwarding_blockers) {
         dev_warn(p->dev,
                  "PFE full OEM profile incomplete: blockers=%#x (IFC/PA/NAPT/OFC-MCC/L2-L3); minimal LAN path not yet qualified\n",
@@ -2797,7 +2997,9 @@ static int hsan_open_datapath(struct net_device *ndev)
      * metadata. They cannot be enabled by pretending they are RX0.
      * No old single-RX0 opt-in bypasses this missing implementation.
      */
-    if (p->gro_channels) {
+    if (p->gro_channels &&
+        !of_property_read_bool(p->dev->of_node,
+                              "hsan,experimental-cpu-lan1-diagnostic")) {
         dev_err(p->dev,
             "RX0..3 ordinary queues implemented; %u GRO queues configured but OEM GRO metadata/delivery remains unimplemented\n",
             p->gro_channels);
@@ -2846,7 +3048,7 @@ static int hsan_open_datapath(struct net_device *ndev)
      * A partially acquired set is unwound; a failed request is never
      * silently converted to watchdog polling.
      */
-    for (ch = 0; ch < HSAN_NET_RX_CHANNELS; ch++) {
+    for (ch = 0; ch < p->rx_channels; ch++) {
         struct hsan_v300_rx_queue *q = &p->rxq[ch];
         u32 mask_reg = hsan_rx_irq_reg(ch, true);
         unsigned long flags;
@@ -2858,7 +3060,8 @@ static int hsan_open_datapath(struct net_device *ndev)
         }
         if (q->irq <= 0)
             continue;
-        ret = request_irq(q->irq, hsan_rx_irq, 0, "hsan-pie-v300", q);
+        ret = ch < HSAN_NET_RX_CHANNELS ?
+            request_irq(q->irq, hsan_rx_irq, 0, "hsan-pie-v300", q) : 0;
         if (ret) {
             dev_err(p->dev, "PIE IRQ[%u] request failed: %d\n", ch, ret);
             goto err_irq;
@@ -2888,7 +3091,7 @@ static int hsan_open_datapath(struct net_device *ndev)
     /* All replacement buffers and software descriptors are prepared
      * before taking the FAM guard. No ring BASE points at them yet.
      */
-    for (ch = 0; ch < HSAN_NET_RX_CHANNELS; ch++) {
+    for (ch = 0; ch < p->rx_channels; ch++) {
         struct hsan_v300_rx_queue *q = &p->rxq[ch];
 
         /* Prepare the empty tail slot too. The first producer advance
@@ -2905,7 +3108,7 @@ static int hsan_open_datapath(struct net_device *ndev)
      * inside tx_lock or the FAM spinlock. IRQs remain masked and active
      * remains false until every queue is programmed below.
      */
-    for (ch = 0; ch < HSAN_NET_RX_CHANNELS; ch++) {
+    for (ch = 0; ch < p->rx_channels; ch++) {
         napi_enable(&p->rxq[ch].napi);
         p->rxq[ch].napi_enabled = true;
     }
@@ -2951,9 +3154,17 @@ static int hsan_open_datapath(struct net_device *ndev)
             hsan_r32(p, HSAN_TX_CH + HSAN_CH_RING) != HSAN_NET_TX_ORDER ||
             !hsan_check_wptr_readback(p, NULL, 0))
             arm_mmio_fault = true;
-        for (ch = 0; ch < HSAN_NET_RX_CHANNELS && !arm_mmio_fault; ch++)
+        for (ch = 0; ch < p->rx_channels && !arm_mmio_fault; ch++)
             if (!hsan_program_rx_channel(&p->rxq[ch]))
                 arm_mmio_fault = true;
+        if (!arm_mmio_fault &&
+            of_property_read_bool(p->dev->of_node,
+                                  "hsan,experimental-cpu-lan1-diagnostic")) {
+            if (hsan_lsw_ips_enable_guarded(&pub))
+                arm_mmio_fault = true;
+            else
+                netdev_info(ndev, "OEM IPS enabled after all PIE rings published\n");
+        }
         if (!arm_mmio_fault) {
             WRITE_ONCE(p->active, true);
             p->last_route_audit = jiffies;
@@ -2962,7 +3173,7 @@ static int hsan_open_datapath(struct net_device *ndev)
                      hsan_r32(p, HSAN_RX_GLOBAL) | HSAN_RX_GLOBAL_ENABLE);
             if (!(hsan_r32(p, HSAN_RX_GLOBAL) & HSAN_RX_GLOBAL_ENABLE))
                 arm_mmio_fault = true;
-            for (ch = 0; ch < HSAN_NET_RX_CHANNELS && !arm_mmio_fault; ch++) {
+            for (ch = 0; ch < p->rx_channels && !arm_mmio_fault; ch++) {
                 struct hsan_v300_rx_queue *q = &p->rxq[ch];
                 u32 mask_reg = hsan_rx_irq_reg(ch, true);
 
@@ -3014,8 +3225,8 @@ static int hsan_open_datapath(struct net_device *ndev)
     }
     mod_delayed_work(system_wq, &p->watchdog, msecs_to_jiffies(20));
     dev_info(p->dev,
-        "PIE v300 DMA submitted: TX %u, ordinary RX0..3 each %u, four NAPI contexts; hardware packet delivery not yet verified\n",
-        p->tx_count, p->rxq[0].rx_count);
+        "PIE v300 DMA submitted: TX %u, RX queues=%u ordinary=%u GRO=%u; aggregate delivery and hardware traffic not qualified\n",
+        p->tx_count, p->rx_channels, HSAN_NET_RX_CHANNELS, p->gro_channels);
     return 0;
 err_published:
     /* All four allocations are retained after ANY ring publication.
@@ -3090,7 +3301,7 @@ static void hsan_record_stop_pointers(struct hsan_v300 *p)
      */
     for (i = 0; i < p->tx_count; i++)
         p->stop_tx_dma_retained += !!p->tx[i].buffer;
-    for (ch = 0; ch < HSAN_NET_RX_CHANNELS; ch++) {
+    for (ch = 0; ch < p->rx_channels; ch++) {
         struct hsan_v300_rx_queue *q = &p->rxq[ch];
 
         p->stop_sw_rx_posted += (u16)(q->rx_prod - q->rx_cons);
@@ -3103,7 +3314,7 @@ static void hsan_record_stop_pointers(struct hsan_v300 *p)
      * fields, NOT a CPU/HW ownership transfer or safe-unmap test.
      */
     dma_rmb();
-    for (ch = 0; ch < HSAN_NET_RX_CHANNELS; ch++) {
+    for (ch = 0; ch < p->rx_channels; ch++) {
         struct hsan_v300_rx_queue *q = &p->rxq[ch];
 
         for (i = 0; i < q->rx_count; i++) {
@@ -3135,7 +3346,7 @@ static void hsan_record_stop_pointers(struct hsan_v300 *p)
     before_rx = (u16)hsan_r32(p, HSAN_RX_CH + HSAN_CH_RPTR);
     p->stop_tx_hw_wptr = (u16)hsan_r32(p, HSAN_TX_CH + HSAN_CH_WPTR);
     p->stop_rx_hw_wptr = (u16)hsan_r32(p, HSAN_RX_CH + HSAN_CH_WPTR);
-    for (ch = 0; ch < HSAN_NET_RX_CHANNELS; ch++) {
+    for (ch = 0; ch < p->rx_channels; ch++) {
         struct hsan_v300_rx_queue *q = &p->rxq[ch];
 
         q->stop_hw_rptr_before =
@@ -3144,7 +3355,7 @@ static void hsan_record_stop_pointers(struct hsan_v300 *p)
             hsan_r32(p, hsan_rx_chan_reg(ch, HSAN_CH_WPTR));
     }
     usleep_range(1000, 1500);
-    for (ch = 0; ch < HSAN_NET_RX_CHANNELS; ch++) {
+    for (ch = 0; ch < p->rx_channels; ch++) {
         struct hsan_v300_rx_queue *q = &p->rxq[ch];
 
         q->stop_hw_rptr_after =
@@ -3177,7 +3388,7 @@ static void hsan_record_stop_pointers(struct hsan_v300 *p)
     p->stop_rx_hw_rptr = after_rx;
     p->stop_hw_pointer_progress = (before_tx != after_tx ||
                                    before_rx != after_rx);
-    for (ch = 0; ch < HSAN_NET_RX_CHANNELS; ch++) {
+    for (ch = 0; ch < p->rx_channels; ch++) {
         struct hsan_v300_rx_queue *q = &p->rxq[ch];
 
         p->stop_hw_pointer_progress |=
@@ -3233,7 +3444,7 @@ static int hsan_stop(struct net_device *ndev)
     /* Synchronize every installed physical IRQ, then all four NAPIs.
      * These CPU drains do not establish a hardware DMA STOP ACK.
      */
-    for (ch = 0; ch < HSAN_NET_RX_CHANNELS; ch++) {
+    for (ch = 0; ch < p->rx_channels; ch++) {
         struct hsan_v300_rx_queue *q = &p->rxq[ch];
 
         if (q->irq_ok) {
@@ -3245,7 +3456,7 @@ static int hsan_stop(struct net_device *ndev)
     spin_lock_irqsave(&p->tx_lock, flags);
     p->stop_rx_irq_masked_channels = 0;
     p->stop_rx_irq_pending_channels = 0;
-    for (ch = 0; ch < HSAN_NET_RX_CHANNELS; ch++) {
+    for (ch = 0; ch < p->rx_channels; ch++) {
         u32 mask_reg = hsan_rx_irq_reg(ch, true);
         u32 status_reg = hsan_rx_irq_reg(ch, false);
         u32 status;
@@ -3262,7 +3473,7 @@ static int hsan_stop(struct net_device *ndev)
             p->stop_rx_irq_masked_channels |= BIT(ch);
     }
     p->stop_irq_masked_readback = p->stop_rx_irq_masked_channels ==
-                                 GENMASK(HSAN_NET_RX_CHANNELS - 1, 0);
+                                 GENMASK(p->rx_channels - 1, 0);
     p->stop_rx_global_disabled_readback =
         !(hsan_r32(p, HSAN_RX_GLOBAL) & HSAN_RX_GLOBAL_ENABLE);
     spin_unlock_irqrestore(&p->tx_lock, flags);
@@ -3687,7 +3898,7 @@ static void hsan_get_ethtool_stats(struct net_device *ndev,
     data[247] = p->rx_init_bad_fields;
     data[248] = p->stop_rx_irq_masked_channels;
     data[249] = p->stop_rx_irq_pending_channels;
-    data[272] = GENMASK(HSAN_NET_RX_CHANNELS - 1, 0);
+    data[272] = GENMASK(p->rx_channels - 1, 0);
     data[273] = !!p->gro_channels;
     for (ch = 0; ch < HSAN_NET_RX_CHANNELS; ch++) {
         struct hsan_v300_rx_queue *q = &p->rxq[ch];
@@ -4168,7 +4379,7 @@ static int hsan_probe(struct platform_device *pdev)
          of_property_present(dev->of_node, "interrupts-extended")))
         return dev_err_probe(dev, -EINVAL,
             "PIE will not poll with unresolved DT IRQ declarations\n");
-    ndev = alloc_etherdev_mqs(sizeof(*p), 1, HSAN_NET_RX_CHANNELS);
+    ndev = alloc_etherdev_mqs(sizeof(*p), 1, HSAN_NET_RX_CHANNELS + gro_channels);
     if (!ndev)
         return -ENOMEM;
     p = netdev_priv(ndev);
@@ -4177,6 +4388,7 @@ static int hsan_probe(struct platform_device *pdev)
     p->tx_count = BIT(HSAN_NET_TX_ORDER);
     p->tx_mask = p->tx_count - 1;
     p->gro_channels = gro_channels;
+    p->rx_channels = HSAN_NET_RX_CHANNELS + gro_channels;
     p->irq_resources = irq_count;
     p->regs = devm_platform_ioremap_resource(pdev, 0);
     if (IS_ERR(p->regs)) {
@@ -4195,19 +4407,25 @@ static int hsan_probe(struct platform_device *pdev)
         ret = -EIO;
         goto err_free;
     }
+    ret = hsan_pie_boot_globals(p);
+    if (ret)
+        goto err_free;
     spin_lock_init(&p->tx_lock);
     INIT_DELAYED_WORK(&p->watchdog, hsan_watchdog);
     ret = hsan_collect_rx_irqs(pdev, irq_count != 0, irqs);
     if (ret)
         goto err_free;
-    for (ch = 0; ch < HSAN_NET_RX_CHANNELS; ch++) {
+    for (ch = 0; ch < p->rx_channels; ch++) {
         struct hsan_v300_rx_queue *q = &p->rxq[ch];
 
         q->parent = p;
         q->channel = ch;
-        q->rx_count = BIT(HSAN_NET_RX_ORDER);
+        q->ring_order = ch < HSAN_NET_RX_CHANNELS ? HSAN_NET_RX_ORDER : 6;
+        q->buffer_size = ch < HSAN_NET_RX_CHANNELS ? HSAN_BUF_SIZE : 15360;
+        q->rx_count = BIT(q->ring_order);
         q->rx_mask = q->rx_count - 1;
-        q->irq = irqs[ch];
+        q->irq = irqs[ch < HSAN_NET_RX_CHANNELS ? ch :
+                          HSAN_OEM_RX_CHANNELS - 1 - ch];
         netif_napi_add(ndev, &q->napi, hsan_napi_poll);
         added_napi++;
     }
@@ -4309,7 +4527,7 @@ static void hsan_remove(struct platform_device *pdev)
      * stopped its optional NAPI thread. A stopped tail checks active
      * under tx_lock and only touches retained software state, not rings.
      */
-    for (ch = 0; ch < HSAN_NET_RX_CHANNELS; ch++)
+    for (ch = 0; ch < p->rx_channels; ch++)
         netif_napi_del(&p->rxq[ch].napi);
     if (!p->dma_ever_started)
         hsan_free_unstarted(p);
