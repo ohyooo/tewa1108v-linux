@@ -15,6 +15,8 @@
 #include <linux/sizes.h>
 #include <linux/sched.h>
 #include <linux/of.h>
+#include <linux/of_address.h>
+#include <linux/of_reserved_mem.h>
 #include <linux/platform_device.h>
 #include <linux/slab.h>
 #include "hsan-lsw-platform.h"
@@ -304,6 +306,7 @@ struct hsan_pfe_state {
     bool ofc_hw_uncertain;
     bool mcc_hw_attempted;
     bool mcc_write_stream_submitted;
+    bool mcc_registers_verified;
     bool mcc_hw_uncertain;
     u32 mcc_hw_rows_written;
 	bool global_writes_attempted;
@@ -1630,6 +1633,48 @@ static void hsan_pfe_release_napt_shadows(struct platform_device *pdev,
  * complete. Opt-in submits only this fixed, non-replayable subset, preserving
  * NAPT uncertainty; it is explicitly NOT an activation or a stop sequence.
  */
+/* NAPT uses OEM memory kind2, never the queue/FAM packet pool */
+static int hsan_pfe_napt_reserved_memory(const u32 memory[2])
+{
+    struct device_node *flow, *queue, *dp;
+    struct reserved_mem *reserved;
+    struct resource flow_res, queue_res;
+    u32 fam[3];
+    u64 fam_end;
+    int ret = -ENODATA;
+
+    flow = of_find_compatible_node(NULL, NULL, "hsan,flow_reserved");
+    queue = of_find_compatible_node(NULL, NULL, "hsan,queue_reserved");
+    dp = of_find_compatible_node(NULL, NULL, "hsan,dp");
+    if (!flow || !queue || !dp)
+        goto out;
+    reserved = of_reserved_mem_lookup(flow);
+    if (!reserved || !of_property_read_bool(flow, "no-map") ||
+        of_address_to_resource(flow, 0, &flow_res) ||
+        of_address_to_resource(queue, 0, &queue_res))
+        goto out;
+    ret = -ERANGE;
+    if (memory[0] != flow_res.start ||
+        memory[1] != resource_size(&flow_res) ||
+        reserved->base != flow_res.start ||
+        reserved->size != resource_size(&flow_res) ||
+        !(flow_res.end < queue_res.start || queue_res.end < flow_res.start))
+        goto out;
+    if (of_property_count_u32_elems(dp, "hsan,observed-fam-address-table") != 3 ||
+        of_property_read_u32_array(dp, "hsan,observed-fam-address-table", fam, 3))
+        goto out;
+    fam_end = (u64)fam[0] + (u64)fam[1] * fam[2];
+    if (!fam[1] || !fam[2] || fam[0] < queue_res.start ||
+        fam_end > (u64)queue_res.end + 1)
+        goto out;
+    ret = 0;
+out:
+    of_node_put(dp);
+    of_node_put(queue);
+    of_node_put(flow);
+    return ret;
+}
+
 static int hsan_pfe_preflight_napt_fixed(struct platform_device *pdev,
                                         struct hsan_pfe_state *state)
 {
@@ -1665,6 +1710,9 @@ static int hsan_pfe_preflight_napt_fixed(struct platform_device *pdev,
     if (!IS_ALIGNED(memory[0], SZ_4K) || !IS_ALIGNED(memory[1], SZ_4K) ||
         !memory[1] || end > (u64)U32_MAX + 1 || total > memory[1])
         return -ERANGE;
+    ret = hsan_pfe_napt_reserved_memory(memory);
+    if (ret)
+        return ret;
     ret = hsan_lsw_dp_get_queue(10, &q);
     if (ret)
         return ret;
@@ -1838,9 +1886,12 @@ static int hsan_pfe_program_napt_partition(struct platform_device *pdev,
     if (!of_property_read_bool(pdev->dev.of_node,
             "hsan,experimental-program-napt-partition"))
         return 0;
+    /* NAPT has its own command ACK; MCC forwarding uncertainty is
+     * separate from successful readback of its initialization registers
+     */
     if (!state->napt_fixed_submitted ||
         !state->global_writes_completed ||
-        !state->mcc_write_stream_submitted || state->mcc_hw_uncertain)
+        !state->mcc_write_stream_submitted || !state->mcc_registers_verified)
         return -EHOSTDOWN;
     ret = hsan_pfe_preflight_napt_partition(pdev, state);
     if (ret)
@@ -2360,6 +2411,7 @@ static int hsan_pfe_program_mcc_hw(struct platform_device *pdev,
      * subsystem has a functional table manager/IRQ. No PFE ready claim.
      */
     state->mcc_write_stream_submitted = true;
+    state->mcc_registers_verified = true;
     /* No OEM readback/acknowledgement has been qualified for the MCC
      * write-only sequence. Preserve uncertainty even after all writes
      * have been submitted to the CPU bus.

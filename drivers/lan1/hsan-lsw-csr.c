@@ -910,7 +910,7 @@ int hsan_lsw_mcc_commit(u32 *rows_written)
     struct hsan_bank *bank;
     unsigned long flags;
     unsigned int i;
-    u32 offset;
+    u32 offset, readback;
     int ret = 0;
 
     if (!rows_written)
@@ -960,6 +960,32 @@ int hsan_lsw_mcc_commit(u32 *rows_written)
     if (ret)
         goto out;
     ret = hsan_lsw_write_raw(0x02000090U, 1);
+    if (ret)
+        goto out;
+    /* Verify stored rows/config only; 0x02000090 is the OEM enable
+     * command, not an invented MCC forwarding or drain acknowledgement
+     */
+    for (i = 1; i <= 255; ++i) {
+        ret = hsan_lsw_read_raw(0x05055004U + 4U * (i - 1), &readback);
+        if (ret)
+            goto out;
+        if (readback != (0x200U | i)) {
+            ret = -EUCLEAN;
+            goto out;
+        }
+    }
+    for (i = 0; i < ARRAY_SIZE(control) - 1; ++i) {
+        u32 mask = i < 2 ? U32_MAX : GENMASK(18, 16);
+        u32 expected = i == 0 ? 0 : i == 1 ? 17 : BIT(17);
+
+        ret = hsan_lsw_read_raw(control[i], &readback);
+        if (ret)
+            goto out;
+        if ((readback & mask) != expected) {
+            ret = -EUCLEAN;
+            goto out;
+        }
+    }
 out:
     mutex_unlock(&hsan_lsw_mcc_lock);
     return ret;
