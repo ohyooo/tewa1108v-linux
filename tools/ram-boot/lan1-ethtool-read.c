@@ -29,8 +29,8 @@ static void number(const char *prefix,long n){
 /* Standard read-only SIOCETHTOOL, no MMIO, link changes or module loading. */
 static unsigned char request[32] __attribute__((aligned(8)));
 static unsigned char info[32] __attribute__((aligned(8)));
-static unsigned char names[12+512*32] __attribute__((aligned(8)));
-static unsigned char stats[8+512*8] __attribute__((aligned(8)));
+static unsigned char names[12+1024*32] __attribute__((aligned(8)));
+static unsigned char stats[8+1024*8] __attribute__((aligned(8)));
 static void word(unsigned char *p,unsigned n){for(unsigned i=0;i<4;i++)p[i]=(unsigned char)(n>>(8*i));}
 static unsigned getword(const unsigned char *p){return p[0]|((unsigned)p[1]<<8)|((unsigned)p[2]<<16)|((unsigned)p[3]<<24);}
 static long query(long fd,unsigned char *data){word(request+16,(unsigned)data);return C(54,fd,0x8946,request,0,0);}
@@ -39,7 +39,7 @@ __attribute__((noreturn)) void _start(void){
  request[0]='l';request[1]='a';request[2]='n';request[3]='1';
  word(info,0x37);word(info+8,2);
  long rc=query(fd,info);if(rc<0){number("ETHTOOL_SSET_RC=",rc);finish(1);}
- unsigned count=getword(info+16);number("ETHTOOL_STAT_COUNT=",count);if(!count||count>512)finish(1);
+ unsigned count=getword(info+16);number("ETHTOOL_STAT_COUNT=",count);if(!count||count>1024)finish(1);
  word(names,0x1b);word(names+4,1);word(names+8,count);
  rc=query(fd,names);if(rc<0){number("ETHTOOL_NAMES_RC=",rc);finish(1);}
  word(stats,0x1d);word(stats+4,count);

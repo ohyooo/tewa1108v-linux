@@ -5,9 +5,11 @@
 #include <linux/bitops.h>
 
 #define HSAN_PFE_TOCPU_REASON_COUNT 138U
+#define HSAN_PFE_DROP_REASON_COUNT 136U
 #define HSAN_PFE_PATH_COUNTER_COUNT 6U
 struct hsan_pfe_cpu_counters {
     u32 reason[HSAN_PFE_TOCPU_REASON_COUNT];
+    u32 drop[HSAN_PFE_DROP_REASON_COUNT];
     u32 path[HSAN_PFE_PATH_COUNTER_COUNT];
 };
 int hsan_lsw_pfe_cpu_counters(struct hsan_pfe_cpu_counters *out);

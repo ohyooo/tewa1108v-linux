@@ -68,7 +68,7 @@ python3 -m venv .venv
 
 ## 只读实板计数器采样
 
-`tools/ram-boot/lan1-ethtool-read.c` 为 freestanding ARMEL helper，仅使用标准 SIOCETHTOOL 查询499项驱动计数器，不读写用户态MMIO，不up/down或重新加载模块
+`tools/ram-boot/lan1-ethtool-read.c` 为 freestanding ARMEL helper，仅使用标准 SIOCETHTOOL 查询654项驱动计数器，不读写用户态MMIO，不up/down或重新加载模块
 
 ```sh
 clang --target=arm-linux-gnueabi -march=armv5te -marm -O2 \
@@ -78,3 +78,7 @@ clang --target=arm-linux-gnueabi -march=armv5te -marm -O2 \
 ```
 
 最新PA CPU诊断候选在IFC tag/11规则窗口读回、LAN1 OPP/PUB和FAM CPU fence检查通过后提交原厂CSR0x07000704=1，仍保留IFC不确定状态，不宣称完整硬件转发或STOP验收，当前实板验证进行中
+
+原厂136项DROP原因计数和8个RX环完整游标已加入只读统计，标准SIOCETHTOOL helper最多容纳1024项
+
+`--lan1-mirror-cpu` 是独立隔离实验，执行原厂hi_port_set_mirror(10,32,16)对应六次寄存器写，目标16由队列几何推导，未证明为可用接收通道，默认不启用，不作为正常LAN或生产配置，原厂A32执行轨迹见reverse/profiles/oem-mirror-candidate-trace.json

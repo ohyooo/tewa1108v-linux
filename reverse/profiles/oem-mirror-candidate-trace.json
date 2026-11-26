@@ -1,0 +1,41 @@
+{
+  "source_sha256": "7591ef5077c540b40f60b4bd5b30620775ab025c4389e353f0f5a1e261e1804e",
+  "scope": "OFFLINE_EMULATED_OEM_INIT_NOT_BOARD_OBSERVATION",
+  "models": {
+    "initial_registers": 0,
+    "queue_profile_sha256": "98a4720b76d50e9ee2b99295b9e2450730b0f2a495cdd746c5f3f6015ddd2dd4"
+  },
+  "return_value": 0,
+  "imported_calls": {
+    "hi_lsw_read": 3,
+    "hi_lsw_write": 6
+  },
+  "register_writes": [
+    [
+      100663512,
+      1024
+    ],
+    [
+      100663768,
+      0
+    ],
+    [
+      100663516,
+      109051904
+    ],
+    [
+      100663488,
+      64
+    ],
+    [
+      100663476,
+      1
+    ],
+    [
+      100663476,
+      0
+    ]
+  ],
+  "table_writes": [],
+  "queue_model": "OEM runtime-verified active rows from oem_queue_profile.json; missing port returns OEM sentinel; initial CSRs zero; no board acceptance"
+}

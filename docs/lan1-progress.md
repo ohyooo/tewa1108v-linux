@@ -25,3 +25,7 @@ GRO聚合报文交付、双向ARP/ICMP/TCP、DMA STOP与owner归还、持久上�
 原厂138项TOCPU原因计数已通过只读SIOCETHTOOL暴露，驱动统计扩展为499项，标签直接来自原厂KO .rodata，采样包含PA/OPP/OFC路径计数
 
 原厂OPP初始化实际执行得到1435次CSR写，其中CPU虚拟端口40..43对应qid129..160、256字映射，旧移植只写LAN1端口10的8字映射，新增CPU映射与原厂A32轨迹逐字完全一致，Kbuild/-Werror通过，实板256字读回通过，流量验证进行中
+
+PA、CPU OPP、MCC初始化后的流量测试仍未通过，新增原厂136项DROP计数器后，测试窗口内DROP/TOCPU原因计数均未增长，不能据此证明无丢包
+
+当前验证LAN1入口镜像隔离候选，保留正常转发未知状态，TX completion已恢复，RX/ARP/ICMP仍未验收

@@ -696,6 +696,11 @@ int hsan_lsw_pfe_cpu_counters(struct hsan_pfe_cpu_counters *out)
         if (ret)
             goto unlock;
     }
+    for (i = 0; i < HSAN_PFE_DROP_REASON_COUNT; i++) {
+        ret = hsan_lsw_read(0x06046800 + i * 4, &out->drop[i]);
+        if (ret)
+            goto unlock;
+    }
     for (i = 0; i < ARRAY_SIZE(path); i++) {
         ret = hsan_lsw_read(path[i], &out->path[i]);
         if (ret)
@@ -1918,6 +1923,59 @@ static int hsan_pfe_program_pa_prelude(struct platform_device *pdev,
     return 0;
 }
 
+/* Bounded isolation experiment using OEM hi_port_set_mirror(10,32,16).
+ * Port16 is the candidate CPU egress inferred from the queue/map geometry;
+ * success is only persistent CSR readback, never proof of packet delivery.
+ */
+static int hsan_pfe_mirror_lan1_cpu(struct platform_device *pdev,
+                                  struct hsan_pfe_state *state)
+{
+    static const u32 regs[] = {
+        0x060000d8, 0x060001d8, 0x060000dc, 0x060000c0, 0x060000b4,
+    };
+    u32 value;
+    unsigned int i;
+    int ret;
+
+    if (!of_property_read_bool(pdev->dev.of_node,
+                              "hsan,experimental-mirror-lan1-to-cpu"))
+        return 0;
+    if (!state->cpu_opp_verified || !state->lan1_opp_verified ||
+        !state->lan1_pub_verified || !state->pa_csr_verified ||
+        !state->ifc_tag_verified ||
+        state->ifc_rows_window_readback != HSAN_PFE_IFC_DEFAULT_ROWS ||
+        hsan_lsw_dp_fam_cpu_fenced())
+        return -EHOSTDOWN;
+    for (i = 0; i < ARRAY_SIZE(regs); i++) {
+        ret = hsan_lsw_check_span(regs[i], sizeof(u32), true);
+        if (ret)
+            return ret;
+    }
+    ret = hsan_lsw_write_verify(regs[0], BIT(10));
+    if (ret)
+        return ret;
+    ret = hsan_lsw_write_verify(regs[1], 0);
+    if (ret)
+        return ret;
+    ret = hsan_lsw_update_bits_verify(regs[2], 0x0ff80000, 0x06800000);
+    if (ret)
+        return ret;
+    ret = hsan_lsw_update_bits_verify(regs[3], BIT(6), BIT(6));
+    if (ret)
+        return ret;
+    ret = hsan_lsw_read(regs[4], &value);
+    if (ret)
+        return ret;
+    ret = hsan_lsw_write(regs[4], value | BIT(0));
+    if (ret)
+        return ret;
+    ret = hsan_lsw_write(regs[4], value & ~BIT(0));
+    if (!ret)
+        dev_warn(&pdev->dev,
+                 "OEM LAN1 ingress mirror candidate submitted: dst16; persistent CSR fields verified, delivery unverified\n");
+    return ret;
+}
+
 /* IFC table manager software owner is separate from the OEM bank0
  * command engine. The module only publishes this shadow when registration
  * succeeds; deletion never pretends to undo hardware IFC writes.
@@ -2999,6 +3057,9 @@ static int hsan_pfe_probe_locked(struct platform_device *pdev)
     }
     state->probe_step = 9;
     ret = hsan_pfe_program_pa_prelude(pdev, state);
+    if (ret)
+        goto rollback;
+    ret = hsan_pfe_mirror_lan1_cpu(pdev, state);
     if (ret)
         goto rollback;
     state->probe_step = 10;
