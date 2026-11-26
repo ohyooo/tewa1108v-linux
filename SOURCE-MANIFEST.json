@@ -20,8 +20,8 @@
     },
     {
       "path": "docs/lan1-progress.md",
-      "bytes": 1327,
-      "sha256": "148db5ba853928fc2b4911235ba0e81833bb1f20e8c16bfe63361d5820b6d01b"
+      "bytes": 1777,
+      "sha256": "a92397f43dc6f819c73ef22aa3b9d9b86df656e298ccee2408c18fa09e10dd4b"
     },
     {
       "path": "docs/reverse-engineering.md",
@@ -105,8 +105,8 @@
     },
     {
       "path": "drivers/lan1/hsan-net-v300.c",
-      "bytes": 184221,
-      "sha256": "2b4ca5732fa713cafd22d00abf4dea984b8099797e35f11a16bb86ede66b8922"
+      "bytes": 184307,
+      "sha256": "a89559bb6cf5f1e8df888769953a0a0d71955a261a554b7ac272a1c803e342cb"
     },
     {
       "path": "drivers/lan1/hsan-pfe-l3intf-plan.h",
@@ -152,6 +152,11 @@
       "path": "evidence/latest-board-result.json",
       "bytes": 6025,
       "sha256": "dc1c5fd5ba77e7d13dda70e7e6b001eff6bd12fe5d756e34b18bf63545382d7d"
+    },
+    {
+      "path": "evidence/oem-linear-tx-descriptor.json",
+      "bytes": 363,
+      "sha256": "38ddb5ab020b118ac1bc4329422e946d50d16d74d94ef54d0d5fd6573db06e9b"
     },
     {
       "path": "kernel/configs/tewa1108v.config",
@@ -380,8 +385,8 @@
     },
     {
       "path": "tools/ram-boot/module-pins.json",
-      "bytes": 1216,
-      "sha256": "d793eaca94209c8a1c3803432e55992729ca8175aeecb045c5b91d920bd8e6ac"
+      "bytes": 1258,
+      "sha256": "d4d688d27456267d913741e181bcc27ade6c50ca5a18ea6988f9c646a96d2bd1"
     },
     {
       "path": "tools/ram-boot/oem_ifc_init_trace.json",

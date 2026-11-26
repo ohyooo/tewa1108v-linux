@@ -555,8 +555,11 @@ static void hsan_tx_build_desc(struct hsan_v300 *p, unsigned int idx,
 	memset(d, 0, HSAN_DESC_BYTES);
 	hsan_desc_u16(d, 0, len);
 	hsan_desc_u32(d, 4, (u32)dma);
-	/* Verified OEM v300 no-offload descriptor branch. */
-	d[3] = 0x14;       /* owner + single segment framing */
+	/* hi_pie_tx_send @3714..372c sets metadata[7] low bits=3
+	 * for a linear skb. v300 @1e14..1e50 maps them to bits6/5:
+	 * owner(bit2), fixed framing(bit4), first/last(bits5/6).
+	 */
+	d[3] = 0x74;
 	d[10] = 0x08;      /* descriptor mode=2 */
 	d[15] = 0x40;      /* OEM fixed bitmap/control flag */
 	d[16] = 0x02;

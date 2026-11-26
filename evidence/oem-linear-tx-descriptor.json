@@ -1,0 +1,11 @@
+{
+  "function_offset": "0x1ddc",
+  "linear_path_metadata_flags": "0x03",
+  "source_evidence": [
+    "hi_pie_tx_send@0x3714..0x372c",
+    "hi_pie_tx_set_desc@0x1e14..0x1e50"
+  ],
+  "descriptor_hex": "5a00007460436081000008000000104002000000000000000000000000000000",
+  "descriptor_byte3": "0x74",
+  "scope": "OFFLINE_ORIGINAL_A32_EXECUTION_NOT_BOARD_ACCEPTANCE"
+}

@@ -15,3 +15,7 @@ GRO聚合报文交付、双向ARP/ICMP/TCP、DMA STOP与owner归还、持久上�
 驱动使用现有Linux 7.3.5内核输出目录及LLVM22.1.8完成Kbuild KCFLAGS=-Werror，无新增第三方依赖
 
 原始逆向材料是寄存器布局、队列几何和原厂流程的重要依据，部分参考代码缺少实际硬件初始化和生命周期实现，必须结合原厂A32反汇编与实板反馈补齐
+
+最新修复：跟踪原厂hi_pie_tx_send线性skb路径@0x3714..0x372c可知传入set_desc的metadata[7]低两位均为1，原厂v300函数@0x1e14..0x1e50映射到描述符byte3的bit6和bit5，旧0x14漏掉两个报文边界标志，正确值为0x74
+
+已实际执行原厂A32 set_desc函数核对完整32字节描述符，证明见evidence/oem-linear-tx-descriptor.json，Kbuild/-Werror通过，实板验证正在进行，尚不宣称修复网络
