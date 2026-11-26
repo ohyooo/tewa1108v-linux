@@ -186,6 +186,7 @@ struct hsan_v300 {
     atomic_t link_reconfiguring;
 	bool active;
 	bool dma_ever_started;
+	bool soft_paused;
 	bool hardware_quiesced;
 	unsigned long fault_flags;
 	u32 stalled_ticks;
@@ -2981,17 +2982,101 @@ static void hsan_adjust_link(struct net_device *ndev)
     spin_unlock_irqrestore(&p->tx_lock, flags);
 }
 
+/* Resume keeps the exact same mappings and cursors. A software pause is
+ * not a hardware STOP acknowledgement and cannot release any allocation.
+ * Caller holds tx_lock and a FAM publication guard, with RX globally off.
+ */
+static bool hsan_retained_dma_valid_locked(struct hsan_v300 *p)
+{
+    unsigned int ch;
+    u16 pending = p->tx_prod - p->tx_cons;
+    u16 hw;
+
+    if (!p->initialized || !p->tx || !p->tx_desc ||
+        (hsan_r32(p, HSAN_RX_GLOBAL) & HSAN_RX_GLOBAL_ENABLE) ||
+        hsan_r32(p, HSAN_TX_CH + HSAN_CH_BASE) != (u32)p->tx_desc_dma ||
+        hsan_r32(p, HSAN_TX_CH + HSAN_CH_RING) != HSAN_NET_TX_ORDER ||
+        !hsan_check_wptr_readback(p, NULL, p->last_tx_published_wptr))
+        return false;
+    hw = (u16)hsan_r32(p, HSAN_TX_CH + HSAN_CH_RPTR);
+    if (hw >= p->tx_count || pending >= p->tx_count ||
+        ((hw - (p->tx_cons & p->tx_mask)) & p->tx_mask) > pending)
+        return false;
+    for (ch = 0; ch < p->rx_channels; ch++) {
+        struct hsan_v300_rx_queue *q = &p->rxq[ch];
+        u16 posted = q->rx_prod - q->rx_cons;
+        u32 group = ch < HSAN_NET_RX_CHANNELS ? ch : HSAN_OEM_RX_CHANNELS - 1 - ch;
+        unsigned int owed, i;
+
+        if (!q->rx || !q->rx_desc ||
+            hsan_r32(p, hsan_rx_chan_reg(ch, HSAN_CH_BASE)) != (u32)q->rx_desc_dma ||
+            hsan_r32(p, hsan_rx_chan_reg(ch, HSAN_CH_RING)) != q->ring_order ||
+            hsan_r32(p, HSAN_RX_BUFFER_LIMIT + ch * HSAN_OEM_RX_CH_STRIDE) != q->buffer_size >> 7 ||
+            ((hsan_r32(p, HSAN_RX_IRQ_ROUTE) >> (2 * ch)) & 3) != group ||
+            !!(hsan_r32(p, HSAN_RX_LARGE_BUFFER) & BIT(ch)) != (q->buffer_size > 9600) ||
+            !hsan_check_wptr_readback(p, q, hsan_rx_published_cursors(q)))
+            return false;
+        hw = (u16)hsan_r32(p, hsan_rx_chan_reg(ch, HSAN_CH_RPTR));
+        if (hw >= q->rx_count || posted >= q->rx_count ||
+            ((hw - (q->rx_cons & q->rx_mask)) & q->rx_mask) > posted)
+            return false;
+        owed = q->rx_count - 1 - posted;
+        if (owed > HSAN_RX_KICK_BATCH_MAX)
+            return false;
+        for (i = 0; i < owed; i++) {
+            unsigned int slot = (q->rx_prod + i) & q->rx_mask;
+            u8 *desc = hsan_rx_desc(q, slot);
+
+            if (!q->rx[slot].buffer || !(READ_ONCE(desc[3]) & BIT(2)) ||
+                get_unaligned_le32(desc + 4) != (u32)q->rx[slot].dma)
+                return false;
+        }
+    }
+    return hsan_unused_rx_runtime_clean_locked(p);
+}
+
+/* STOP can suppress the low16 kick after NAPI has rebuilt a partial
+ * batch and published SF_RPTR. Release those prepared gap slots before
+ * RX resumes; their buffers stayed mapped and were never HW-visible.
+ */
+static bool hsan_resume_rx_postings_locked(struct hsan_v300 *p)
+{
+    unsigned int ch;
+
+    for (ch = 0; ch < p->rx_channels; ch++) {
+        struct hsan_v300_rx_queue *q = &p->rxq[ch];
+        unsigned int owed = q->rx_count - 1 - (u16)(q->rx_prod - q->rx_cons);
+
+        if (!owed)
+            continue;
+        q->rx_prod += owed;
+        hsan_rx_publish_producer_cursor(q);
+        if (!hsan_check_wptr_readback(p, q, hsan_rx_published_cursors(q)))
+            return false;
+        p->rx_batch_kick_commits++;
+        p->rx_batch_kick_descs += owed;
+        if (owed > p->rx_batch_kick_max)
+            p->rx_batch_kick_max = owed;
+    }
+    return true;
+}
+
 static int hsan_open_datapath(struct net_device *ndev)
 {
     struct hsan_v300 *p = netdev_priv(ndev);
     struct phy_device *phy;
     bool arm_mmio_fault = false;
+    bool resume = p->dma_ever_started;
     unsigned int ch, i;
     int ret;
 
     WRITE_ONCE(p->open_stage, HSAN_NET_OPEN_LIFETIME);
-    if (p->dma_ever_started ||
-        atomic_read(&hsan_pie_dma_lifetime_touched) ||
+    if ((resume && (!p->soft_paused ||
+          atomic_read(&hsan_pie_dma_lifetime_touched) != 1 ||
+          !of_property_read_bool(p->dev->of_node,
+              "hsan,experimental-retain-dma-on-down") ||
+          hsan_lsw_dp_fam_cpu_fenced())) ||
+        (!resume && atomic_read(&hsan_pie_dma_lifetime_touched)) ||
         test_bit(HSAN_FAULT_DATAPATH, &p->fault_flags))
         return -EOPNOTSUPP;
     WRITE_ONCE(p->open_stage, HSAN_NET_OPEN_DMA_OPTIN);
@@ -3030,7 +3115,7 @@ static int hsan_open_datapath(struct net_device *ndev)
     if (!hsan_phy3_link(p))
         return -ENOLINK;
     WRITE_ONCE(p->open_stage, HSAN_NET_OPEN_RX_IDLE);
-    if (!hsan_owned_rx_idle(p) || !hsan_unused_rx_prearm_clean(p)) {
+    if (!resume && (!hsan_owned_rx_idle(p) || !hsan_unused_rx_prearm_clean(p))) {
         dev_err(p->dev,
             "PIE RX ownership/geometry is not idle; foreign RX%u flags=%#x owned RX%u fields=%#x\n",
             p->other_rx_bad_channel, p->other_rx_bad_flags,
@@ -3038,19 +3123,25 @@ static int hsan_open_datapath(struct net_device *ndev)
         return -EBUSY;
     }
     WRITE_ONCE(p->open_stage, HSAN_NET_OPEN_ALLOC);
-    ret = hsan_alloc_queues(p);
+    ret = resume ? 0 : hsan_alloc_queues(p);
     if (ret)
         return ret;
-    WRITE_ONCE(p->open_stage, HSAN_NET_OPEN_PHY_ATTACH);
-    ret = hsan_gemac_lan1_get_phy(&phy);
-    if (ret)
+    if (resume && (!p->phy_connected || !ndev->phydev)) {
+        ret = -EUCLEAN;
         goto err_queues;
-    ret = phy_connect_direct(ndev, phy, hsan_adjust_link,
-                             PHY_INTERFACE_MODE_GMII);
-    put_device(&phy->mdio.dev);
-    if (ret)
-        goto err_queues;
-    p->phy_connected = true;
+    }
+    if (!resume) {
+        WRITE_ONCE(p->open_stage, HSAN_NET_OPEN_PHY_ATTACH);
+        ret = hsan_gemac_lan1_get_phy(&phy);
+        if (ret)
+            goto err_queues;
+        ret = phy_connect_direct(ndev, phy, hsan_adjust_link,
+                                 PHY_INTERFACE_MODE_GMII);
+        put_device(&phy->mdio.dev);
+        if (ret)
+            goto err_queues;
+        p->phy_connected = true;
+    }
     WRITE_ONCE(p->open_stage, HSAN_NET_OPEN_IRQ);
     /* Reserve every configured IRQ before GEMAC or ring publication.
      * A partially acquired set is unwound; a failed request is never
@@ -3099,19 +3190,21 @@ static int hsan_open_datapath(struct net_device *ndev)
     /* All replacement buffers and software descriptors are prepared
      * before taking the FAM guard. No ring BASE points at them yet.
      */
-    for (ch = 0; ch < p->rx_channels; ch++) {
-        struct hsan_v300_rx_queue *q = &p->rxq[ch];
+    if (!resume) {
+        for (ch = 0; ch < p->rx_channels; ch++) {
+            struct hsan_v300_rx_queue *q = &p->rxq[ch];
 
-        /* Prepare the empty tail slot too. The first producer advance
-         * exposes it while the just-consumed slot becomes the new gap.
-         * OEM rx_init allocates/adds every node, not only count - 1.
-         */
-        for (i = 0; i < q->rx_count; i++)
-            hsan_rx_build_desc(q, i);
-        q->rx_cons = 0;
-        q->rx_prod = q->rx_count - 1;
+            /* Prepare the empty tail slot too. The first producer advance
+             * exposes it while the just-consumed slot becomes the new gap.
+             * OEM rx_init allocates/adds every node, not only count - 1.
+             */
+            for (i = 0; i < q->rx_count; i++)
+                hsan_rx_build_desc(q, i);
+            q->rx_cons = 0;
+            q->rx_prod = q->rx_count - 1;
+        }
+        p->tx_prod = p->tx_cons = 0;
     }
-    p->tx_prod = p->tx_cons = 0;
     /* Linux 7.3.5 napi_enable takes netdev_lock(), so it must not run
      * inside tx_lock or the FAM spinlock. IRQs remain masked and active
      * remains false until every queue is programmed below.
@@ -3139,39 +3232,48 @@ static int hsan_open_datapath(struct net_device *ndev)
         /* Repeat both owned and unowned channel checks at the actual
          * publication boundary. The shared global RX bit is still off.
          */
-        if (!hsan_owned_rx_idle(p) || !hsan_unused_rx_prearm_clean(p)) {
+        if (resume ? !hsan_retained_dma_valid_locked(p) :
+            (!hsan_owned_rx_idle(p) || !hsan_unused_rx_prearm_clean(p))) {
             p->prearm_handoff_rejections++;
             hsan_lsw_fam_publish_end(&pub);
+            if (resume)
+                hsan_quarantine_datapath_locked(p,
+                    HSAN_DMA_FAULT_INITIAL_ARM_READBACK,
+                    "retained DMA ring geometry changed while paused");
             spin_unlock_irqrestore(&p->tx_lock, flags);
             ret = -EBUSY;
             goto err_irq;
         }
-        if (atomic_cmpxchg(&hsan_pie_dma_lifetime_touched, 0, 1)) {
-            hsan_lsw_fam_publish_end(&pub);
-            spin_unlock_irqrestore(&p->tx_lock, flags);
-            ret = -EUCLEAN;
-            goto err_irq;
-        }
-        __module_get(THIS_MODULE);
-        p->dma_ever_started = true;
-        dma_wmb();
-        hsan_w32(p, HSAN_TX_CH + HSAN_CH_BASE, (u32)p->tx_desc_dma);
-        hsan_w32(p, HSAN_TX_CH + HSAN_CH_RING, HSAN_NET_TX_ORDER);
-        hsan_w32(p, HSAN_TX_CH + HSAN_CH_WPTR, 0);
-        if (hsan_r32(p, HSAN_TX_CH + HSAN_CH_BASE) != (u32)p->tx_desc_dma ||
-            hsan_r32(p, HSAN_TX_CH + HSAN_CH_RING) != HSAN_NET_TX_ORDER ||
-            !hsan_check_wptr_readback(p, NULL, 0))
+        if (!resume) {
+            if (atomic_cmpxchg(&hsan_pie_dma_lifetime_touched, 0, 1)) {
+                hsan_lsw_fam_publish_end(&pub);
+                spin_unlock_irqrestore(&p->tx_lock, flags);
+                ret = -EUCLEAN;
+                goto err_irq;
+            }
+            __module_get(THIS_MODULE);
+            p->dma_ever_started = true;
+            dma_wmb();
+            hsan_w32(p, HSAN_TX_CH + HSAN_CH_BASE, (u32)p->tx_desc_dma);
+            hsan_w32(p, HSAN_TX_CH + HSAN_CH_RING, HSAN_NET_TX_ORDER);
+            hsan_w32(p, HSAN_TX_CH + HSAN_CH_WPTR, 0);
+            if (hsan_r32(p, HSAN_TX_CH + HSAN_CH_BASE) != (u32)p->tx_desc_dma ||
+                hsan_r32(p, HSAN_TX_CH + HSAN_CH_RING) != HSAN_NET_TX_ORDER ||
+                !hsan_check_wptr_readback(p, NULL, 0))
+                arm_mmio_fault = true;
+            for (ch = 0; ch < p->rx_channels && !arm_mmio_fault; ch++)
+                if (!hsan_program_rx_channel(&p->rxq[ch]))
+                    arm_mmio_fault = true;
+            if (!arm_mmio_fault &&
+                of_property_read_bool(p->dev->of_node,
+                                      "hsan,experimental-cpu-lan1-diagnostic")) {
+                if (hsan_lsw_ips_enable_guarded(&pub))
+                    arm_mmio_fault = true;
+                else
+                    netdev_info(ndev, "OEM IPS enabled after all PIE rings published\n");
+            }
+        } else if (!hsan_resume_rx_postings_locked(p)) {
             arm_mmio_fault = true;
-        for (ch = 0; ch < p->rx_channels && !arm_mmio_fault; ch++)
-            if (!hsan_program_rx_channel(&p->rxq[ch]))
-                arm_mmio_fault = true;
-        if (!arm_mmio_fault &&
-            of_property_read_bool(p->dev->of_node,
-                                  "hsan,experimental-cpu-lan1-diagnostic")) {
-            if (hsan_lsw_ips_enable_guarded(&pub))
-                arm_mmio_fault = true;
-            else
-                netdev_info(ndev, "OEM IPS enabled after all PIE rings published\n");
         }
         if (!arm_mmio_fault) {
             WRITE_ONCE(p->active, true);
@@ -3196,7 +3298,7 @@ static int hsan_open_datapath(struct net_device *ndev)
             p->initial_arm_mmio_faults++;
             hsan_quarantine_datapath_locked(p,
                 HSAN_DMA_FAULT_INITIAL_ARM_READBACK,
-                "PIE first irreversible ring/IRQ MMIO readback failed");
+                "PIE start/resume ring or IRQ MMIO readback failed");
         }
         spin_unlock_irqrestore(&p->tx_lock, flags);
     }
@@ -3212,7 +3314,8 @@ static int hsan_open_datapath(struct net_device *ndev)
         goto err_published;
     }
     netif_carrier_off(ndev);
-    phy_start(ndev->phydev);
+    if (!resume)
+        phy_start(ndev->phydev);
     {
         unsigned long flags;
 
@@ -3228,6 +3331,7 @@ static int hsan_open_datapath(struct net_device *ndev)
             goto err_published;
         }
         netif_start_queue(ndev);
+        WRITE_ONCE(p->soft_paused, false);
         WRITE_ONCE(p->open_stage, HSAN_NET_OPEN_ACTIVE);
         spin_unlock_irqrestore(&p->tx_lock, flags);
     }
@@ -3235,6 +3339,8 @@ static int hsan_open_datapath(struct net_device *ndev)
     dev_info(p->dev,
         "PIE v300 DMA submitted: TX %u, RX queues=%u ordinary=%u GRO=%u; aggregate delivery and hardware traffic not qualified\n",
         p->tx_count, p->rx_channels, HSAN_NET_RX_CHANNELS, p->gro_channels);
+    if (resume)
+        netdev_info(ndev, "PIE retained DMA mappings resumed; no hardware STOP or owner release\n");
     return 0;
 err_published:
     /* All four allocations are retained after ANY ring publication.
@@ -3243,8 +3349,10 @@ err_published:
      */
     hsan_free_owned_irqs(p);
     hsan_disable_owned_napi(p);
-    phy_disconnect(ndev->phydev);
-    p->phy_connected = false;
+    if (!resume) {
+        phy_disconnect(ndev->phydev);
+        p->phy_connected = false;
+    }
     return ret;
 
 err_prearm:
@@ -3252,10 +3360,13 @@ err_prearm:
 err_irq:
     hsan_free_owned_irqs(p);
     hsan_disable_owned_napi(p);
-    phy_disconnect(ndev->phydev);
-    p->phy_connected = false;
+    if (!resume) {
+        phy_disconnect(ndev->phydev);
+        p->phy_connected = false;
+    }
 err_queues:
-    hsan_free_unstarted(p);
+    if (!resume)
+        hsan_free_unstarted(p);
     return ret;
 }
 
@@ -3430,11 +3541,16 @@ static int hsan_stop(struct net_device *ndev)
     struct hsan_v300 *p = netdev_priv(ndev);
     unsigned long flags;
     unsigned int ch;
+    bool retain = p->dma_ever_started &&
+                  of_property_read_bool(p->dev->of_node,
+                        "hsan,experimental-retain-dma-on-down") &&
+                  !test_bit(HSAN_FAULT_DATAPATH, &p->fault_flags) &&
+                  !hsan_lsw_dp_fam_cpu_fenced();
 
     netif_tx_disable(ndev);
     spin_lock_irqsave(&p->tx_lock, flags);
     WRITE_ONCE(p->active, false);
-    if (p->dma_ever_started) {
+    if (p->dma_ever_started && !retain) {
         hsan_lsw_dp_fam_stop_fence();
         p->stop_fam_cpu_fenced = true;
     }
@@ -3444,7 +3560,7 @@ static int hsan_stop(struct net_device *ndev)
     (void)hsan_r32(p, HSAN_RX_GLOBAL);
     spin_unlock_irqrestore(&p->tx_lock, flags);
     cancel_delayed_work_sync(&p->watchdog);
-    if (p->phy_connected) {
+    if (p->phy_connected && !retain) {
         phy_stop(ndev->phydev);
         phy_disconnect(ndev->phydev);
         p->phy_connected = false;
@@ -3490,6 +3606,9 @@ static int hsan_stop(struct net_device *ndev)
     if (p->dma_ever_started)
         hsan_record_stop_pointers(p);
     WRITE_ONCE(p->hardware_quiesced, false);
+    WRITE_ONCE(p->soft_paused, retain &&
+        !test_bit(HSAN_FAULT_DATAPATH, &p->fault_flags) &&
+        !hsan_lsw_dp_fam_cpu_fenced());
     dev_warn(p->dev,
         "PIE STOP CPU: FAM fence=%d IRQ handlers synchronized=%d RX masks=%#x RX-global-off=%d RX pending=%#x; hardware DMA drain unverified, all mappings retained\n",
         p->stop_fam_cpu_fenced, p->stop_irq_synchronized,

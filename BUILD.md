@@ -94,3 +94,5 @@ Windows 主机使用已有 pyserial 环境，在管理员 PowerShell 中运行 `
 UDP 工具包含分片报文验证，TCP 工具使用逐字节回传比较，运行日志仅写入本地 `work/`
 
 UDP 验证可用 `-Rounds` 指定回传次数，范围 1..20000，默认 1000
+
+`--retain-dma-on-down` 启用保留映射的软暂停恢复，编译并上传 `lan1-interface-test.c` 对应程序至设备 `/tmp/lan1-interface-test` 后，可用 TCP 工具的 `-InterfaceCycles` 验证传输期间 down/up，仍不允许卸载模块或释放 DMA 映射

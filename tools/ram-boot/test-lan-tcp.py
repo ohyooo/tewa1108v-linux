@@ -11,16 +11,20 @@ import time
 parser = argparse.ArgumentParser()
 parser.add_argument('--seconds', type=int, default=0)
 parser.add_argument('--port', type=int, default=18080)
+parser.add_argument('--interface-cycles', type=int, default=0)
 args = parser.parse_args()
 if not 0 <= args.seconds <= 300 or not 1024 <= args.port <= 65535:
     parser.error('duration or port outside test bounds')
+if not 0 <= args.interface_cycles <= 3 or (args.interface_cycles and
+                                         args.seconds < args.interface_cycles * 5 + 5):
+    parser.error('interface cycles need 5 seconds per cycle plus 5 seconds')
 Path('work').mkdir(exist_ok=True)
 size = 1024 * 1024
 tag = secrets.token_hex(8)
 payload = secrets.token_bytes(size)
 raw = bytearray()
 result = {"bytes_per_round": size, "minimum_seconds": args.seconds, "port": args.port,
-          "pass": False, "rounds": 0}
+          "pass": False, "rounds": 0, "interface_cycles": args.interface_cycles}
 listener = socket.socket()
 listener.bind(("192.168.0.10", args.port))
 listener.listen(1)
@@ -77,17 +81,39 @@ try:
             raise RuntimeError("TCP_SERIAL_COMMAND_TIMEOUT")
 
         command("printf 'TCP_READY_%s\\n' '" + tag + "'", 5)
+        cycle_setup = cycle_finish = ''
+        if args.interface_cycles:
+            ready = command('test -e /sys/firmware/devicetree/base/pie@12080000/'
+                            'hsan,experimental-retain-dma-on-down && '
+                            'test -x /tmp/lan1-interface-test; '
+                            'printf "TCP_CYCLE_READY=%s\\n" "$?"', 5)
+            if b'TCP_CYCLE_READY=0' not in ready:
+                raise RuntimeError('TCP_INTERFACE_CYCLE_PROFILE_OR_HELPER_MISSING')
+            cycle_file = '/tmp/tewa-cycle-' + tag + '.log'
+            indices = ' '.join(str(i) for i in range(args.interface_cycles))
+            cycle_setup = (f'(for cycle in {indices}; do sleep 1; '
+                           'timeout 10 /tmp/lan1-interface-test || exit 1; '
+                           f'done) > {cycle_file} 2>&1 & cycle_pid=$!; ')
+            cycle_finish = (f'wait "$cycle_pid"; cycle_rc=$?; cat {cycle_file}; '
+                            'printf "TCP_CYCLE_RC=%s\\n" "$cycle_rc"; '
+                            f'rm -f {cycle_file}; ')
         filename = "/tmp/tewa-tcp-" + tag + ".bin"
         script = (f"exec 3<>/dev/tcp/192.168.0.10/{args.port} || exit 1; "
                   "while read -r count <&3; do [ \"$count\" = 0 ] && break; "
                   f"head -c \"$count\" <&3 > {filename} || exit 2; "
                   f"cat {filename} >&3 || exit 3; "
                   "done; exec 3>&-; exec 3<&-")
-        response = command(f"timeout {args.seconds + 40} bash -c '" + script + "'; tcp_rc=$?; "
+        response = command(cycle_setup + f"timeout {args.seconds + 40} bash -c '" + script + "'; tcp_rc=$?; "
+                           + cycle_finish +
                            "printf 'TCP_SHELL_RC=%s\\n' \"$tcp_rc\"; rm -f " + filename, args.seconds + 50)
         result["board_shell_rc_zero"] = b"TCP_SHELL_RC=0" in response
+        result['interface_cycles_completed'] = response.count(b'INTERFACE_SOFT_RESUME_PASS')
+        result['interface_cycles_pass'] = (not args.interface_cycles or
+                                          (b'TCP_CYCLE_RC=0' in response and
+                                           result['interface_cycles_completed'] == args.interface_cycles))
     worker.join(5)
-    result["pass"] = (result["pass"] and result["board_shell_rc_zero"] and not worker.is_alive())
+    result["pass"] = (result["pass"] and result["board_shell_rc_zero"]
+                      and result['interface_cycles_pass'] and not worker.is_alive())
 finally:
     listener.close()
     Path("work/tcp-roundtrip-" + tag + ".raw").write_bytes(raw)

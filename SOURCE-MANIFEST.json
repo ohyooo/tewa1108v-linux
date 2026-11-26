@@ -98,6 +98,7 @@
     "tools/ram-boot/enable_reboot.py",
     "tools/ram-boot/fip_patches.py",
     "tools/ram-boot/lan1-ethtool-read.c",
+    "tools/ram-boot/lan1-interface-test.c",
     "tools/ram-boot/lan1-network-test.c",
     "tools/ram-boot/lan1-udp-test.c",
     "tools/ram-boot/module-pins.inc",

@@ -5,4 +5,4 @@
 {"hsan-lsw-dp","/tewa/modules/hsan-lsw-dp.ko",53448u,""},
 {"hsan-lsw-pfe","/tewa/modules/hsan-lsw-pfe.ko",67880u,""},
 {"hsan-gemac-lan1","/tewa/modules/hsan-gemac-lan1.ko",23816u,""},
-{"hsan-net-v300","/tewa/modules/hsan-net-v300.ko",128952u,""},
+{"hsan-net-v300","/tewa/modules/hsan-net-v300.ko",132488u,""},
