@@ -65,3 +65,16 @@ python3 -m venv .venv
 该仓库提供重建源码和说明，不包含完整基线固件或Debian根文件系统，不能只编译KO后对任意OEM内核强制加载
 
 已有构建证据见 `evidence/driver-build.log`，本次仓库整理没有重新执行完整内核编译或新的实板网络验收
+
+## 只读实板计数器采样
+
+`tools/ram-boot/lan1-ethtool-read.c` 为 freestanding ARMEL helper，仅使用标准 SIOCETHTOOL 查询354项驱动计数器，不读写用户态MMIO，不up/down或重新加载模块
+
+```sh
+clang --target=arm-linux-gnueabi -march=armv5te -marm -O2 \
+  -fno-builtin -fno-stack-protector -fuse-ld=lld -static -nostdlib \
+  -Wl,-e,_start -Wall -Wextra -Werror \
+  tools/ram-boot/lan1-ethtool-read.c -o out/lan1-ethtool-read.elf
+```
+
+最新PA CPU诊断候选在IFC tag/11规则窗口读回、LAN1 OPP/PUB和FAM CPU fence检查通过后提交原厂CSR0x07000704=1，仍保留IFC不确定状态，不宣称完整硬件转发或STOP验收，当前实板验证进行中

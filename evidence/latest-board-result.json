@@ -1,8 +1,8 @@
 {
   "stage": 161,
-  "session": "20261126T055419196029Z",
+  "session": "20261126T060812983624Z",
   "test": "T6_STAGE161_WDT_DEBIAN_ARMEL_SHELL_AND_STAGE160_LAN1_NORMAL_DIAGNOSTIC",
-  "status": "CPU_LAN1_DMA_QUARANTINED",
+  "status": "CPU_LAN1_UP_TRAFFIC_NOT_ACCEPTED",
   "boot_sent": true,
   "boot_tx_complete": true,
   "kernel_boot": "LINUX_7_3_5_VERSION_OBSERVED",
@@ -26,22 +26,22 @@
   "tftp_cleanup": "PASS",
   "files": {
     "initrd": {
-      "sha256": "9b13cb436fdffc9be3909812632103989761bb324552f0c8c667fe7c048fa300",
-      "expected_bytes": 49004514,
-      "expected_crc32": "0b6906e8",
+      "sha256": "63c061fbe729552f224502eab566439a6e7e1a73737ad5be0b0df2c9e0394035",
+      "expected_bytes": 49004672,
+      "expected_crc32": "c3dcc01e",
       "attempted": true,
       "passed": true,
-      "received_bytes": 49004514,
-      "received_crc32": "0b6906e8"
+      "received_bytes": 49004672,
+      "received_crc32": "c3dcc01e"
     },
     "carrier": {
-      "sha256": "104a988bdbab4dfdfa34ca02d80caa349ac61bd3dccd0053beb569d87ffa02ee",
-      "expected_bytes": 8105632,
-      "expected_crc32": "bd70b341",
+      "sha256": "cdfb8fed6674c148f194f67cb349caa7aca67e05ae2e09d82b56c57dea958d55",
+      "expected_bytes": 8105728,
+      "expected_crc32": "d95c1d41",
       "attempted": true,
       "passed": true,
-      "received_bytes": 8105632,
-      "received_crc32": "bd70b341"
+      "received_bytes": 8105728,
+      "received_crc32": "d95c1d41"
     }
   },
   "phase": "LINUX_DEBIAN_DRIVER_DIAGNOSTIC",
@@ -68,14 +68,14 @@
     "files": [
       {
         "name": "stage161-debian13-armel-lan1-wdt.cpio.gz",
-        "bytes": 49004514,
-        "sha256": "9b13cb436fdffc9be3909812632103989761bb324552f0c8c667fe7c048fa300",
+        "bytes": 49004672,
+        "sha256": "63c061fbe729552f224502eab566439a6e7e1a73737ad5be0b0df2c9e0394035",
         "session_cleanup": "PASS"
       },
       {
         "name": "stage161-debian13-armel-lan1-wdt.ramimage",
-        "bytes": 8105632,
-        "sha256": "104a988bdbab4dfdfa34ca02d80caa349ac61bd3dccd0053beb569d87ffa02ee",
+        "bytes": 8105728,
+        "sha256": "cdfb8fed6674c148f194f67cb349caa7aca67e05ae2e09d82b56c57dea958d55",
         "session_cleanup": "PASS"
       }
     ],
@@ -93,12 +93,12 @@
   },
   "ram_pair": "PASS_CURRENT_PAIR_RAM_CRC_ONLY",
   "oem_nand_fallback_observed": "UNVERIFIED",
-  "oem_boot_selector_message": "boot from kernelb and update reg to 10",
+  "oem_boot_selector_message": "boot from kernela and update reg to 11",
   "module_hash_marker_source": "RAW",
   "userspace_arch": "armel",
   "running_release": "7.3.5",
   "live_dt_profile": "MATCH",
-  "effective_fdt_sha256": "6d8405219a210f881748d7a1580edab2378cdcb296bef15331cc09fff940130a",
+  "effective_fdt_sha256": "7dd9e9558e6f4001f9c9cd71be98db72b8bcbb54fa5b4356f8abc7fd13dc7a26",
   "module_file_hashes": "PASS",
   "module_load_rc": {
     "hsan-lsw-crg": 0,
@@ -161,9 +161,9 @@
   "ifc_default_commands_accepted": 11,
   "ifc_tag_image_verified": true,
   "pie_global_init_verified": true,
-  "pie_dma_quarantined": true,
-  "pie_dma_fault_code": 7,
-  "pie_dma_fault_reason": "TX consumer failed to advance for five seconds",
+  "pie_dma_quarantined": false,
+  "pie_dma_fault_code": null,
+  "pie_dma_fault_reason": null,
   "pfe_globals_submitted": true,
   "pie_boot_reset_verified": true,
   "pie_map_data_verified": {
@@ -176,7 +176,7 @@
   "ndo_open_gate": "INCOMPLETE_OR_UNEXPECTED",
   "boot_fault_observed": false,
   "interactive_prompt_observed": true,
-  "wdt_device_present": "NOT_OBSERVED",
+  "wdt_device_present": "OBSERVED",
   "wdt_driver_bound": "OBSERVED",
   "wdt_status_attributes": null,
   "wdt_device_number": "254:0",
@@ -193,6 +193,6 @@
   "cpu_lan1_up": true,
   "lsw_profile_missing": [],
   "lsw_profile_result": "REQUESTED_INITIALIZATION_OBSERVED_NOT_NETWORK_ACCEPTANCE",
-  "completed_utc": "2026-11-26T05:55:55.812516+00:00",
+  "completed_utc": "2026-11-26T06:09:49.659718+00:00",
   "shell_retained": "OBSERVED"
 }

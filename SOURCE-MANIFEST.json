@@ -15,8 +15,13 @@
     },
     {
       "path": "BUILD.md",
-      "bytes": 3120,
-      "sha256": "baf03cd77c9bf352862d56e4a65f1c8f1e2346a80d262276a83c03c533d00ca7"
+      "bytes": 3816,
+      "sha256": "d8eadb10a189ec5c69582885efd969e6ebc2fa641a93bab0cec247ebeb370e98"
+    },
+    {
+      "path": "docs/current-status.md",
+      "bytes": 38488,
+      "sha256": "9a1c1558822f510816524aaed751b0ae62e2f2c554631af92b3256b3f9442124"
     },
     {
       "path": "docs/lan1-progress.md",
@@ -80,8 +85,8 @@
     },
     {
       "path": "drivers/lan1/hsan-lsw-pfe.c",
-      "bytes": 118013,
-      "sha256": "36d355f4b7730abda9d71ae8b7a457b4c84d8082de09e1987aad19cd3d9a7519"
+      "bytes": 118599,
+      "sha256": "2005350b92b1021822fb34dc8ed46bd2fcba6b931ecf7aca421eba339f2186fa"
     },
     {
       "path": "drivers/lan1/hsan-lsw-pfe.h",
@@ -145,18 +150,23 @@
     },
     {
       "path": "evidence/driver-build.log",
-      "bytes": 366,
-      "sha256": "77edf5eaea67c0e23ade68762db9bca274fcb82207e70d4d3a4495b5e16b16ce"
+      "bytes": 364,
+      "sha256": "578dfa51979025aa68f0baae86aaca62840c3f48f48f565210dc14cc54ce6535"
     },
     {
       "path": "evidence/latest-board-result.json",
-      "bytes": 6025,
-      "sha256": "dc1c5fd5ba77e7d13dda70e7e6b001eff6bd12fe5d756e34b18bf63545382d7d"
+      "bytes": 5989,
+      "sha256": "16b24e60c0b63a9739874142f0b08155c9ec785dece35f8543ba7f1ef8c3c610"
     },
     {
       "path": "evidence/oem-linear-tx-descriptor.json",
       "bytes": 363,
       "sha256": "38ddb5ab020b118ac1bc4329422e946d50d16d74d94ef54d0d5fd6573db06e9b"
+    },
+    {
+      "path": "evidence/rx-observe-deltas.json",
+      "bytes": 1943,
+      "sha256": "a38334e3642c6a796051ebca2f3fefd31eab2aa7285e6ca239d3f4950eb921e4"
     },
     {
       "path": "kernel/configs/tewa1108v.config",
@@ -170,8 +180,8 @@
     },
     {
       "path": "README.md",
-      "bytes": 3153,
-      "sha256": "92f60f91a38ae710c56b7c50c9681850bee704ff89b67ded7fb2e027ceb1bd47"
+      "bytes": 3143,
+      "sha256": "e65e7bad8bcd78b34237e6fb8071f616b0bad85716862d197ed1438a454c3e85"
     },
     {
       "path": "reverse/disassembly/oem-acp.dis",
@@ -212,6 +222,11 @@
       "path": "reverse/disassembly/oem-kernel.syms",
       "bytes": 3320461,
       "sha256": "8c523f9d320aca2e808b8ed846996ac4e8019afed6dd4c4d6087195d94cd320c"
+    },
+    {
+      "path": "reverse/disassembly/oem-kmac.dis",
+      "bytes": 372853,
+      "sha256": "97b8fa5fb98fafc888c060c652a3b00500e77c4ac331a54021aa820648bf8df4"
     },
     {
       "path": "reverse/disassembly/oem-kpie.dis",
@@ -345,13 +360,13 @@
     },
     {
       "path": "tools/ram-boot/build_lsw_diagnostic_pair.py",
-      "bytes": 18495,
-      "sha256": "c1ea1286d72b35c70cf533675d742555d574d1b6a28d001bd9dd1d131c5d9979"
+      "bytes": 18707,
+      "sha256": "c0a1405e8bf8079ecf7757d3d58349bf3a5698f3ccd0e453b27c0b26232d283d"
     },
     {
       "path": "tools/ram-boot/diagnose.sh",
-      "bytes": 9076,
-      "sha256": "3a5362e1ce73bf59a82d4a41a1a9af1cc740fdd25f60bc4f7d4fcd0d859ae7c4"
+      "bytes": 9247,
+      "sha256": "9b8034c3bccadd599ae55fdc644c39a4e9e3dc58a3cc14de69aeca95eac2988e"
     },
     {
       "path": "tools/ram-boot/driver-test.c",
@@ -374,6 +389,11 @@
       "sha256": "6cc9c204c0590c64e6a893f48dd35dc0bcfc18464c01e9073831705924d6b82f"
     },
     {
+      "path": "tools/ram-boot/lan1-ethtool-read.c",
+      "bytes": 3098,
+      "sha256": "5bd8192329553c98540c13bd9888c5bf308f3384deb426d6177cecfc2765e8d9"
+    },
+    {
       "path": "tools/ram-boot/lan1-network-test.c",
       "bytes": 5153,
       "sha256": "430151a991bfec89333faa395c2995b35c8d04ad7e60b5a03e01dba65db3707f"
@@ -381,12 +401,12 @@
     {
       "path": "tools/ram-boot/module-pins.inc",
       "bytes": 521,
-      "sha256": "358ac250cf981dcd8c6091eee3e0ba6e388c164d4619672faa1437454097c52c"
+      "sha256": "af2211ced138bef9dc7207e609cb3daaa0333fa6b74a9a657cb0a6144ff4613d"
     },
     {
       "path": "tools/ram-boot/module-pins.json",
       "bytes": 1216,
-      "sha256": "fcda39cf7b38aae27f8d2350de0359d119469ca0ee801b48607b17a5318f1abc"
+      "sha256": "58d748b355c33143ce7b31b4c1b8ea26bcb3c9d422f7ce6b1d81384e6bb6493c"
     },
     {
       "path": "tools/ram-boot/oem_ifc_init_trace.json",

@@ -20,9 +20,9 @@
     "crc32": "cc276a66"
   },
   "hsan-lsw-pfe": {
-    "bytes": 62320,
-    "sha256": "9c8781d730dc45cbffedfe226896d1bba01f6a720ef021a66152dae4007ba9a5",
-    "crc32": "f8db4010"
+    "bytes": 62480,
+    "sha256": "ee83f76a7d36c1044dd4f414281a755508f6902a451f21db4bd0a7b3f2188825",
+    "crc32": "f18139c7"
   },
   "hsan-lsw-platform": {
     "bytes": 6688,

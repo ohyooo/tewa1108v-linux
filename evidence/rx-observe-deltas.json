@@ -1,0 +1,107 @@
+{
+  "tx_hw_rptr": {
+    "before": "0xa000a",
+    "after": "0x100010",
+    "delta": 393222
+  },
+  "rx_hw_rptr": {
+    "before": "0x0",
+    "after": "0x0",
+    "delta": 0
+  },
+  "tx_packets": {
+    "before": "0xa",
+    "after": "0x10",
+    "delta": 6
+  },
+  "rx_packets": {
+    "before": "0x0",
+    "after": "0x0",
+    "delta": 0
+  },
+  "pfe_diag_ifc_1000": {
+    "before": "0xe",
+    "after": "0x20",
+    "delta": 18
+  },
+  "pfe_diag_ifc_1018": {
+    "before": "0x0",
+    "after": "0x0",
+    "delta": 0
+  },
+  "pfe_diag_l2_40000": {
+    "before": "0xe",
+    "after": "0x20",
+    "delta": 18
+  },
+  "pfe_diag_l2_40004": {
+    "before": "0xe",
+    "after": "0x20",
+    "delta": 18
+  },
+  "pfe_diag_l3_1000": {
+    "before": "0x0",
+    "after": "0x0",
+    "delta": 0
+  },
+  "pfe_diag_l3_1018": {
+    "before": "0x0",
+    "after": "0x0",
+    "delta": 0
+  },
+  "pfe_diag_pa_1000": {
+    "before": "0xe",
+    "after": "0x20",
+    "delta": 18
+  },
+  "pfe_diag_pa_1004": {
+    "before": "0xe",
+    "after": "0x20",
+    "delta": 18
+  },
+  "pfe_diag_napt_ifc_1024": {
+    "before": "0x0",
+    "after": "0x0",
+    "delta": 0
+  },
+  "pfe_diag_napt_l3_1014": {
+    "before": "0x0",
+    "after": "0x0",
+    "delta": 0
+  },
+  "pfe_diag_napt_1000": {
+    "before": "0x0",
+    "after": "0x0",
+    "delta": 0
+  },
+  "gemac_oem_counter_0400": {
+    "before": "0x1b3dc",
+    "after": "0x1b3e8",
+    "delta": 12
+  },
+  "gemac_oem_counter_04d0": {
+    "before": "0x1b3ca",
+    "after": "0x1b3d0",
+    "delta": 6
+  },
+  "gemac_oem_counter_04c0": {
+    "before": "0x3bc9954",
+    "after": "0x3bc9d16",
+    "delta": 962
+  },
+  "gemac_oem_counter_0588": {
+    "before": "0x6cf3af",
+    "after": "0x6cf52f",
+    "delta": 384
+  },
+  "pfe_diag_sample_begin_ns": {
+    "before": "0x15286dd368",
+    "after": "0x191b1ad6f8",
+    "delta": 16956326800
+  },
+  "pfe_diag_sample_end_ns": {
+    "before": "0x15286defec",
+    "after": "0x191b1af318",
+    "delta": 16956326700
+  }
+}

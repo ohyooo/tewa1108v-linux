@@ -1827,8 +1827,9 @@ static int hsan_pfe_program_napt_partition(struct platform_device *pdev,
 
 /* The PA register prelude is one genuine OEM MMIO write, not PA ready.
  * The OEM enables it only after IFC. Our IFC 128-bit payload has no
- * audited readback/ACK yet, so a PA request MUST fail without touching
- * hardware until the IFC uncertain state can truly be cleared.
+ * audited forwarding/STOP ACK yet. The explicit CPU bootstrap experiment
+ * may submit this exact register after all tag/rule window checks; full
+ * forwarding remains unqualified and IFC uncertainty is never cleared.
  */
 static int hsan_pfe_preflight_pa(struct platform_device *pdev,
                                 struct hsan_pfe_state *state)
@@ -1849,9 +1850,19 @@ static int hsan_pfe_program_pa_prelude(struct platform_device *pdev,
         return 0;
     if (!state->global_writes_completed ||
         !state->ifc_hw_attempted ||
-        state->ifc_rows_committed != HSAN_PFE_IFC_DEFAULT_ROWS ||
-        state->ifc_hw_uncertain)
+        state->ifc_rows_committed != HSAN_PFE_IFC_DEFAULT_ROWS)
         return -EHOSTDOWN;
+    if (of_property_read_bool(pdev->dev.of_node,
+                              "hsan,experimental-ifc-cpu-path")) {
+        if (!state->lan1_opp_verified || !state->lan1_pub_verified ||
+            !state->ifc_tag_verified ||
+            state->ifc_rows_window_readback != HSAN_PFE_IFC_DEFAULT_ROWS ||
+            state->ifc_late_window_drift_latched ||
+            hsan_lsw_dp_fam_cpu_fenced())
+            return -EHOSTDOWN;
+    } else if (state->ifc_hw_uncertain) {
+        return -EHOSTDOWN;
+    }
     ret = hsan_pfe_preflight_pa(pdev, state);
     if (ret)
         return ret;
@@ -2592,7 +2603,7 @@ static int hsan_pfe_preflight_hw_plan(struct platform_device *pdev,
         (ifc && !cpu_ifc && (!opp || !tfrt || !mcc || !ofc || !napt)) ||
         (pa && !ifc))
         return -EINVAL;
-    if (cpu_ifc && (!ifc || !opp || !globals || pa ||
+    if (cpu_ifc && (!ifc || !opp || !globals ||
         !of_property_read_bool(dev->of_node,
                               "hsan,experimental-program-lan1-opp") ||
         !of_property_read_bool(dev->of_node,
@@ -2609,8 +2620,10 @@ static int hsan_pfe_preflight_hw_plan(struct platform_device *pdev,
          * Reject PA opt-in BEFORE PFE global MMIO or IFC side effects;
          * otherwise this necessarily fails after irreversible writes.
          */
-        dev_err(dev, "PA prelude refused before hardware writes: IFC table ACK/ownership not qualified\n");
-        return -EOPNOTSUPP;
+        if (!cpu_ifc) {
+            dev_err(dev, "PA prelude refused before hardware writes: IFC table ACK/ownership not qualified\n");
+            return -EOPNOTSUPP;
+        }
     }
     if (napt) {
         struct hsan_pfe_state *state = platform_get_drvdata(pdev);

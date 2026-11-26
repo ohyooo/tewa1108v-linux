@@ -174,6 +174,7 @@ def build(base_payload, artifacts, helper, diagnostic, output, fam_shadow=False,
         edits["/lsw_dp"]["hsan,experimental-program-ips-queues"] = b""
         edits["/lsw_dp"]["hsan,experimental-enable-ips-before-fam"] = b""
         edits["/lsw_pfe"]["hsan,experimental-program-ofc-control"] = b""
+        edits["/lsw_pfe"]["hsan,experimental-program-pa-prelude"] = b""
         edits["/pie@12080000"].update({
             "hsan,experimental-dma-enable": b"",
             "hsan,experimental-cpu-lan1-diagnostic": b"",
@@ -181,7 +182,9 @@ def build(base_payload, artifacts, helper, diagnostic, output, fam_shadow=False,
         })
         edits["/gemac@14400000"] = {
             "hsan,experimental-program-oem-gemac-link": b"",
+            "hsan,experimental-read-gemac-oem-counters": b"",
         }
+        edits["/lsw_pfe"]["hsan,experimental-read-pfe-oem-diagnostics"] = b""
     if noncoherent_dma:
         edits["/pie@12080000"]["dma-coherent"] = None
         edits["/pie@12080000"]["hsan,experimental-noncoherent-dma"] = b""
