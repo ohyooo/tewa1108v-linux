@@ -362,7 +362,7 @@ static int hsan_gro_capture_setup(struct hsan_v300 *p)
     if (!of_property_read_bool(p->dev->of_node,
                               "hsan,experimental-gro-raw-capture"))
         return 0;
-    p->gro_capture = devm_kcalloc(p->dev, 2, sizeof(*p->gro_capture), GFP_KERNEL);
+    p->gro_capture = devm_kcalloc(p->dev, 3, sizeof(*p->gro_capture), GFP_KERNEL);
     file = devm_kzalloc(p->dev, sizeof(*file), GFP_KERNEL);
     if (!p->gro_capture || !file)
         return -ENOMEM;
@@ -371,7 +371,7 @@ static int hsan_gro_capture_setup(struct hsan_v300 *p)
     file->attribute.attr.name = "gro_capture";
     file->attribute.attr.mode = 0400;
     file->attribute.private = p->gro_capture;
-    file->attribute.size = 2 * sizeof(*p->gro_capture);
+    file->attribute.size = 3 * sizeof(*p->gro_capture);
     file->attribute.read = hsan_gro_capture_read;
     file->kobject = &p->dev->kobj;
     ret = sysfs_create_bin_file(file->kobject, &file->attribute);
@@ -385,15 +385,16 @@ static bool hsan_gro_capture_needed(struct hsan_v300_rx_queue *q,
 {
     struct hsan_gro_capture_record *r = q->parent->gro_capture;
 
-    if (!r || (q->channel < HSAN_NET_RX_CHANNELS && !metadata->vendor_aux) ||
-        !metadata->length || metadata->length > HSAN_GRO_CAPTURE_BYTES)
+    if (!r || !metadata->length || metadata->length > HSAN_GRO_CAPTURE_BYTES)
         return false;
+    if (q->channel < HSAN_NET_RX_CHANNELS && !metadata->vendor_aux)
+        return !READ_ONCE(r[2].ready);
     return !READ_ONCE(r[0].ready) ||
            (metadata->length > ETH_FRAME_LEN && !READ_ONCE(r[1].ready));
 }
 
 /* Called only inside the revalidated RX DMA CPU admission window
- * Keep the first vendor/GRO frame and the first frame larger than MTU
+ * Keep the first vendor/GRO frame, first large frame and first ordinary TCP
  * Each record is immutable after its release-published GRO1 marker
  */
 static u32 hsan_gro_capture_packet(struct hsan_v300_rx_queue *q,
@@ -401,13 +402,19 @@ static u32 hsan_gro_capture_packet(struct hsan_v300_rx_queue *q,
                                   const void *descriptor, const void *payload)
 {
     struct hsan_gro_capture_record *records = q->parent->gro_capture;
+    const u8 *frame = payload;
+    bool ordinary = q->channel < HSAN_NET_RX_CHANNELS && !metadata->vendor_aux;
     unsigned int i;
     u32 copied = 0;
 
-    for (i = 0; i < 2; i++) {
+    for (i = 0; i < 3; i++) {
         struct hsan_gro_capture_record *r = &records[i];
 
-        if (READ_ONCE(r->ready) || (i && metadata->length <= ETH_FRAME_LEN))
+        if (READ_ONCE(r->ready) ||
+            (i < 2 && ordinary) ||
+            (i == 1 && metadata->length <= ETH_FRAME_LEN) ||
+            (i == 2 && (!ordinary || metadata->length < 54 ||
+                        frame[12] != 0x08 || frame[13] != 0 || frame[23] != 6)))
             continue;
         r->channel = cpu_to_le32(q->channel);
         r->frame_bytes = cpu_to_le32(metadata->length);
