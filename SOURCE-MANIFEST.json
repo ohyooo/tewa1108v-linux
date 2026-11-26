@@ -20,8 +20,8 @@
     },
     {
       "path": "README.md",
-      "bytes": 4132,
-      "sha256": "3f595cda2a75e4243d7632ac2078f35c39b6da66f1d9ee291dbce9eb3b3915c9"
+      "bytes": 5525,
+      "sha256": "1689c5c1b4143234ead6419890faaac9ce8d0d5c6659a104c55c26100f2de589"
     },
     {
       "path": "docs/capa-selector7.md",
@@ -30,8 +30,8 @@
     },
     {
       "path": "docs/current-status.md",
-      "bytes": 46634,
-      "sha256": "3ad80a9d75d419caff50cdee032515acb8c0cf069089906a229adb9949339bf6"
+      "bytes": 48027,
+      "sha256": "bbd003cfa4ec29089db02e190721b021f69182032bdc0a57156c7b44b066aedb"
     },
     {
       "path": "docs/eqm-queue-diagnostic.md",
@@ -77,6 +77,11 @@
       "path": "docs/rx0-large-diagnostic.md",
       "bytes": 1801,
       "sha256": "ab062cccca0a6b5e72e0027ee8ee0cc5a66e6220d012b79e5b2fc4ce336a402c"
+    },
+    {
+      "path": "docs/tcp-validation.md",
+      "bytes": 1392,
+      "sha256": "22c9c4c94ac106c9b8c61bf3dc587f7cce73756742eed60b52bfffbde062ab50"
     },
     {
       "path": "drivers/lan1/Makefile",
@@ -209,6 +214,16 @@
       "sha256": "983d32840e9ad8c45d5b90fff6a31e5c2326c39d867ae78c5a3992b89016e1df"
     },
     {
+      "path": "evidence/executed-soak-test-lan-tcp.ps1",
+      "bytes": 628,
+      "sha256": "a8837dd7cc7b33ec593a7312195ad3ae241a1e38440912a40abef88060d332fb"
+    },
+    {
+      "path": "evidence/executed-soak-test-lan-tcp.py",
+      "bytes": 4532,
+      "sha256": "a5fd04e26fe3be8b1c47f0995e0158476ff5150cca8ae921c1805e8f156f8224"
+    },
+    {
       "path": "evidence/extra-queues-acceptance.json",
       "bytes": 630,
       "sha256": "4f98ea848cb0da15a2ac00ada27f413a0598076b7a10494ed8bbdf3d40c47aa6"
@@ -269,6 +284,11 @@
       "sha256": "189f37f5af7003ea18359d36bcd15935c38adc0f566c9b703fb85a90ebb82614"
     },
     {
+      "path": "evidence/port4-after-tcp-stats.json",
+      "bytes": 28591,
+      "sha256": "31f89eefa9272d97f90c326c1c69c40e0b618a070636ba7aad08f52bbe98d9e4"
+    },
+    {
       "path": "evidence/port4-board-icmp.raw",
       "bytes": 10070,
       "sha256": "f1d0a9e9090e783cb7d3781d0c788741515e4a121b70cc38276eeabd3597a94c"
@@ -297,6 +317,31 @@
       "path": "evidence/rx0-large-snapshots.json",
       "bytes": 48879,
       "sha256": "9c899817d6c414af2c2d76dd4b07a4a4e8a3ea79474b971abb71a6bc149f442a"
+    },
+    {
+      "path": "evidence/tcp-acceptance.json",
+      "bytes": 1391,
+      "sha256": "988a3f5adc9d918708816aea694ad1d9cf4255ac7c2377ea80f140a5975a9c84"
+    },
+    {
+      "path": "evidence/tcp-roundtrip-098ddb1b12db3ac5.raw",
+      "bytes": 87198,
+      "sha256": "9e4acbe50db2538f25cf34337450f9bffdc1aac46c713bad83bae35bc844e79a"
+    },
+    {
+      "path": "evidence/tcp-roundtrip-748a7ae158eb9db4.raw",
+      "bytes": 739,
+      "sha256": "3825a8cda6982de5d0aaba0daecd119adc3145b04effc5bf517decc09c40bb87"
+    },
+    {
+      "path": "evidence/tcp-roundtrip-latest.json",
+      "bytes": 482,
+      "sha256": "d7ac402e7df933f6aa9605de47ad97f8fb59fedf8ec6c7cd851273ac42be0646"
+    },
+    {
+      "path": "evidence/tcp-soak-test.txt",
+      "bytes": 508,
+      "sha256": "3800f0cadc3c4d74d9d6140b1a91a3d87f94802247446d45613883370ad49d82"
     },
     {
       "path": "kernel/configs/tewa1108v.config",
@@ -682,6 +727,16 @@
       "path": "tools/ram-boot/reboot.c",
       "bytes": 1350,
       "sha256": "e827c7e89d2b2e595b5ec288f11cbe888c3e3dfe18d79751fa7675d41143db7b"
+    },
+    {
+      "path": "tools/ram-boot/test-lan-tcp.ps1",
+      "bytes": 686,
+      "sha256": "c77e7a5c5fbff28ffe573b1294204b1841dddb4b6685c08997b269a26a62c5dd"
+    },
+    {
+      "path": "tools/ram-boot/test-lan-tcp.py",
+      "bytes": 4566,
+      "sha256": "1ac35d7e9767a196c4c2b4d5191bc4eecead61c7334c8e252011a1e306977db2"
     },
     {
       "path": "tools/ram-boot/tewa_image.py",

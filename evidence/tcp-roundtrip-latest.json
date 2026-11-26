@@ -1,0 +1,15 @@
+{
+  "bytes_per_round": 1048576,
+  "minimum_seconds": 60,
+  "port": 18081,
+  "expected_sha256": "715ef6e3be467f5f0b245d4046de3bd22558bb4db56661e195e62cead320bf18",
+  "pass": true,
+  "rounds": 848,
+  "elapsed_seconds": 60.0619999999999,
+  "returned_bytes": 1048576,
+  "returned_sha256": "715ef6e3be467f5f0b245d4046de3bd22558bb4db56661e195e62cead320bf18",
+  "bytes_each_direction": 889192448,
+  "board_checksum_count": 848,
+  "board_sha256_seen": true,
+  "board_shell_rc_zero": true
+}

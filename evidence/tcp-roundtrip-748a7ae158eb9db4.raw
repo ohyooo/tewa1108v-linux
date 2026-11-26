@@ -1,0 +1,10 @@
+printf 'TCP_READY_%s\n' '748a7ae158eb9db4'; printf '\nTCP_DONE_%s\n' '2ff1583d1b110e3c4'
+[?2004lTCP_READY_748a7ae158eb9db4
+
+TCP_DONE_2f1583d1b110e3c4
+[?2004hTEWA160# timeout 35 bash -c 'exec 3<>/dev/tcp/192.168.0.10/18080 || exit 1; head  -c 1048576 <&3 > /tmp/tewa-tcp-748a7ae158eb9db4.bin || exit 2; sha256sum /tmp/teewa-tcp-748a7ae158eb9db4.bin; cat /tmp/tewa-tcp-748a7ae158eb9db4.bin >&3; exec 3>>&-; exec 3<&-'; tcp_rc=$?; printf 'TCP_SHELL_RC=%s\n' "$tcp_rc"; rm -f /tmp/tewaa-tcp-748a7ae158eb9db4.bin; printf '\nTCP_DONE_%s\n' 'b0af988e6d63ec02'
+[?2004laac465b2f491e300b238f2fdf79c576468294450449b728369311fa071899285  /tmp/tewa-tcp-748a7ae158eb9db4.bin
+TCP_SHELL_RC=0
+
+TCP_DONE_b0af988e6d63ec02
+[?2004hTEWA160# 
