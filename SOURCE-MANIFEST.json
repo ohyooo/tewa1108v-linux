@@ -155,13 +155,13 @@
     },
     {
       "path": "kernel/source-audit.json",
-      "bytes": 707,
-      "sha256": "9a00ce04ff263da50e10ecaf0e0b7c365be2ec46507cf07e11641ad807b4bb4b"
+      "bytes": 764,
+      "sha256": "69b528e567ee01868e4b0213d99da1cbd6e0dbf510867c873e0ee7d954487d6f"
     },
     {
       "path": "README.md",
       "bytes": 3056,
-      "sha256": "0807481f306f5194daeaf6b22e25dbf40f2c53014da9aad250379b24ee0fdb5b"
+      "sha256": "4677338c2850389283477e648676aafce24c397f2ecec37b34aa55d59386ca6b"
     },
     {
       "path": "reverse/disassembly/oem-acp.dis",

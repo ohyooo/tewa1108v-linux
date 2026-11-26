@@ -22,7 +22,7 @@ TEWA-1108V 的 Linux 7.3.5 ARM64 适配、LAN1 驱动和原厂模块逆向研究
 
 ## 文件
 
-- `kernel/linux-7.3.5/`：完整内核源码，保留原始文件模式和符号链接；与构建机的96,068个唯一文件核对见 `kernel/source-audit.json`
+- `kernel/linux-7.3.5/`：完整内核源码，保留原始文件模式和符号链接；与构建机的96,081个唯一文件核对见 `kernel/source-audit.json`
 - `kernel/configs/tewa1108v.config`：当前实板内核对应配置，包含 DW WDT 和 reset controller
 - `drivers/lan1/`：PIE、GEMAC、MDIO、LSW CSR/DP/PFE/platform 和 CRG 驱动，共八个外置模块
 - `reverse/disassembly/`：原厂模块反汇编和符号研究材料
