@@ -92,7 +92,7 @@ bool hsan_lsw_dp_fam_cpu_fenced(void);
  * A read command is still an MMIO write and remains CPU-fence protected.
  * Counter clear-on-read behavior is unqualified; never an ownership ACK.
  */
-#define HSAN_DP_DIAG_QUEUE_COUNT 56
+#define HSAN_DP_DIAG_QUEUE_COUNT 64
 struct hsan_dp_queue_counters {
     u32 words[HSAN_DP_DIAG_QUEUE_COUNT][5]; /* table81[0..3], table80[2] */
     bool valid[HSAN_DP_DIAG_QUEUE_COUNT];

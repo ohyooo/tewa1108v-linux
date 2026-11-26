@@ -2592,6 +2592,40 @@ static int hsan_pfe_lan1_opp(struct platform_device *pdev, bool submit)
  * against all 1024 original A32 writes. Its role in CPU RX is not
  * assumed; this explicit boot-only candidate restores that init range.
  */
+/* hi_capa_set_cpu_rate uses logical port4; its OPP mapping is an
+ * independent eight-word part of the original hi_pfe_opp_init trace.
+ */
+static int hsan_pfe_port4_opp(struct platform_device *pdev, bool submit)
+{
+    struct hsan_dp_queue_snapshot q;
+    unsigned int priority;
+    int ret;
+
+    if (!of_property_read_bool(pdev->dev.of_node,
+                              "hsan,experimental-program-port4-opp"))
+        return 0;
+    if (!of_property_read_bool(pdev->dev.of_node,
+                              "hsan,experimental-program-cpu-opp"))
+        return -EPERM;
+    ret = hsan_lsw_dp_get_queue(4, &q);
+    if (ret)
+        return ret;
+    if (!hsan_pfe_dp_lan1_handoff(&q) || q.count != 8 || q.qid != 33)
+        return -ENODATA;
+    ret = hsan_lsw_check_span(0x06042880, 8 * sizeof(u32), true);
+    if (ret || !submit)
+        return ret;
+    for (priority = 0; priority < 8; priority++) {
+        ret = hsan_lsw_write_verify(0x06042880 + priority * 4,
+                                    BIT(8) | (q.qid + priority));
+        if (ret)
+            return ret;
+    }
+    dev_info(&pdev->dev,
+             "OEM OPP port4 qid33..40 map verified: 8 words; CPU RX unqualified\n");
+    return 0;
+}
+
 static int hsan_pfe_port33_opp(struct platform_device *pdev, bool submit)
 {
     struct hsan_dp_queue_snapshot q;
@@ -2772,6 +2806,9 @@ static int hsan_pfe_preflight_hw_plan(struct platform_device *pdev,
         if (ret)
             return ret;
     }
+    ret = hsan_pfe_port4_opp(pdev, false);
+    if (ret)
+        return ret;
     ret = hsan_pfe_port33_opp(pdev, false);
     if (ret)
         return ret;
@@ -3026,6 +3063,9 @@ static int hsan_pfe_probe_locked(struct platform_device *pdev)
 		goto rollback;
     state->lan1_opp_verified = of_property_read_bool(pdev->dev.of_node,
                                   "hsan,experimental-program-lan1-opp");
+    ret = hsan_pfe_port4_opp(pdev, true);
+    if (ret)
+        goto rollback;
     ret = hsan_pfe_port33_opp(pdev, true);
     if (ret)
         goto rollback;

@@ -431,7 +431,7 @@ int hsan_lsw_dp_queue_counters(struct hsan_dp_queue_counters *out)
         goto unlock;
     for (i = 0; i < HSAN_DP_DIAG_QUEUE_COUNT; i++) {
         u32 table80[3], table81[4];
-        u16 qid = i < 8 ? 81 + i : 129 + i - 8;
+        u16 qid = i < 8 ? 81 + i : (i < 56 ? 129 + i - 8 : 33 + i - 56);
 
         if (hsan_lsw_dp_fam_cpu_fenced()) {
             ret = -ESHUTDOWN;

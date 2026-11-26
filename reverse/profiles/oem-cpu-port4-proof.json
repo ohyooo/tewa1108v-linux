@@ -1,0 +1,79 @@
+{
+  "scope": "OFFLINE_ORIGINAL_A32_AND_INIT_TRACE_NOT_BOARD_ACCEPTANCE",
+  "module_sha256": "9a13a7d0f0b9aeecaf9c36106d2775cb68b294d6ffd5b55c5b4803b9305b16b2",
+  "opp_trace_sha256": "d93c3162f9da422a57d113b74bae3f201eb0dff5f0d4e9c6a79dcd89aa39d269",
+  "source_function": "hi_capa_set_cpu_rate @0x5814",
+  "models": "queue shaping API records opaque argument bits and returns success; no config pointer dereference, rate programming or MMIO",
+  "cases": [
+    {
+      "rate_argument_bits": 0,
+      "shaping_call": [
+        4,
+        0
+      ]
+    },
+    {
+      "rate_argument_bits": 1,
+      "shaping_call": [
+        4,
+        1
+      ]
+    },
+    {
+      "rate_argument_bits": 1000,
+      "shaping_call": [
+        4,
+        1000
+      ]
+    },
+    {
+      "rate_argument_bits": 100000,
+      "shaping_call": [
+        4,
+        100000
+      ]
+    },
+    {
+      "rate_argument_bits": 4294967295,
+      "shaping_call": [
+        4,
+        4294967295
+      ]
+    }
+  ],
+  "port4_opp_writes": [
+    [
+      100935808,
+      289
+    ],
+    [
+      100935812,
+      290
+    ],
+    [
+      100935816,
+      291
+    ],
+    [
+      100935820,
+      292
+    ],
+    [
+      100935824,
+      293
+    ],
+    [
+      100935828,
+      294
+    ],
+    [
+      100935832,
+      295
+    ],
+    [
+      100935836,
+      296
+    ]
+  ],
+  "qualification": "CPU rate API explicitly selects logical port4; exact role in initial LAN1 receive still requires board proof; no new shaping or action policy inferred"
+}

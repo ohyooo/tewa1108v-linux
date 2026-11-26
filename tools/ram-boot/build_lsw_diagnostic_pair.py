@@ -69,7 +69,7 @@ def build(base_payload, artifacts, helper, diagnostic, output, fam_shadow=False,
           boot_reset=False, arm_fam=False, eqm=False, queue_routing=False,
           pie_reset=False, pie_map=False, pfe_globals=False, pie_acp=False,
           pfe_opp=False, lan1_opp=False, lan1_pub=False, cpu_ifc=False,
-          cpu_diagnostic=False, noncoherent_dma=False, lan1_mirror_cpu=False, eqm_counters=False, rx0_large_buffer=False, opp_port33=False):
+          cpu_diagnostic=False, noncoherent_dma=False, lan1_mirror_cpu=False, eqm_counters=False, rx0_large_buffer=False, opp_port33=False, opp_port4=False):
     if arm_fam and not (fam_shadow and boot_reset):
         raise ValueError("FAM hardware init requires CPU staging and cold boot reset")
     if eqm and not arm_fam:
@@ -92,6 +92,8 @@ def build(base_payload, artifacts, helper, diagnostic, output, fam_shadow=False,
         raise ValueError("CPU IFC requires the LAN1 PUB and OPP hardware plans")
     if cpu_diagnostic and not (cpu_ifc and pie_acp):
         raise ValueError("CPU DMA diagnostic requires the complete IFC/OPP/PUB/ACP bootstrap")
+    if opp_port4 and not cpu_diagnostic:
+        raise ValueError("Port4 OPP candidate requires CPU diagnostic mode")
     if opp_port33 and not cpu_diagnostic:
         raise ValueError("Port33 OPP candidate requires CPU diagnostic mode")
     if rx0_large_buffer and not cpu_diagnostic:
@@ -195,6 +197,8 @@ def build(base_payload, artifacts, helper, diagnostic, output, fam_shadow=False,
             "hsan,experimental-read-gemac-oem-counters": b"",
         }
         edits["/lsw_pfe"]["hsan,experimental-read-pfe-oem-diagnostics"] = b""
+    if opp_port4:
+        edits["/lsw_pfe"]["hsan,experimental-program-port4-opp"] = b""
     if opp_port33:
         edits["/lsw_pfe"]["hsan,experimental-program-port33-opp"] = b""
     if rx0_large_buffer:
@@ -334,6 +338,7 @@ def build(base_payload, artifacts, helper, diagnostic, output, fam_shadow=False,
     pair["cpu_lan1_diagnostic_requested"] = cpu_diagnostic
     pair["pie_global_init_requested"] = cpu_diagnostic
     pair["cpu_opp_requested"] = cpu_diagnostic
+    pair["port4_opp_requested"] = opp_port4
     pair["port33_opp_requested"] = opp_port33
     pair["rx0_large_buffer_requested"] = rx0_large_buffer
     pair["eqm_counter_diagnostic_requested"] = eqm_counters
@@ -406,11 +411,12 @@ if __name__ == "__main__":
     parser.add_argument("--eqm-counters", action="store_true")
     parser.add_argument("--rx0-large-buffer", action="store_true")
     parser.add_argument("--opp-port33", action="store_true")
+    parser.add_argument("--opp-port4", action="store_true")
     args = parser.parse_args()
     result = build(args.base_payload, args.artifacts, args.helper, args.diagnostic,
                    args.output, args.fam_shadow, args.boot_reset, args.arm_fam,
                    args.eqm, args.queue_routing, args.pie_reset, args.pie_map,
                    args.pfe_globals, args.pie_acp, args.pfe_opp, args.lan1_opp,
                    args.lan1_pub, args.cpu_ifc, args.cpu_diagnostic,
-                   args.noncoherent_dma, args.lan1_mirror_cpu, args.eqm_counters, args.rx0_large_buffer, args.opp_port33)
+                   args.noncoherent_dma, args.lan1_mirror_cpu, args.eqm_counters, args.rx0_large_buffer, args.opp_port33, args.opp_port4)
     print(json.dumps({k: result[k] for k in ("initrd", "carrier")}, indent=2))

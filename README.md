@@ -1,3 +1,15 @@
+## LAN1真实双向ICMP首次通过 20261126T120242772156Z
+
+新增port4 OPP八词映射并逐词读回后，PC→设备3次ping全部成功、延迟小于1ms、丢包0%，设备→PC的3次ICMP回复通过源目的地址、ID、序号、payload和checksum校验，板端ARP已解析
+
+实板RX计数1→13，TX完成10→18，qid33 table81 word3与RX同步，64队列统计有效，采样期间DMA未隔离
+
+关键缺项为原厂逻辑port4的0x06042880+priority*4映射到qid33..40，之前仅设置port40..43虚拟映射不足，原厂hi_capa_set_cpu_rate固定选择port4的调用证据与此次实板结果一致
+
+这是RAM诊断模式的基础收发通过，TCP、长期稳定性、GRO聚合交付、DMA STOP/owner归还恢复和正式上线仍未验收，不能标记全部完成
+
+boot工具原始result中的CPU_LAN1_UP_TRAFFIC_NOT_ACCEPTED保留其启动阶段结论，启动后的独立流量验收以port4-acceptance.json及原始网络测试记录为准，不回改历史result
+
 # TEWA-1108V Linux
 
 TEWA-1108V 的 Linux 7.3.5 ARM64 适配、LAN1 驱动和原厂模块逆向研究

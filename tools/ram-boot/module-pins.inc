@@ -3,6 +3,6 @@
 {"hsan-lsw-csr","/tewa/modules/hsan-lsw-csr.ko",79816u,"experimental_allow_lsw_writes=1"},
 {"hsan-lsw-platform","/tewa/modules/hsan-lsw-platform.ko",6688u,""},
 {"hsan-lsw-dp","/tewa/modules/hsan-lsw-dp.ko",53448u,""},
-{"hsan-lsw-pfe","/tewa/modules/hsan-lsw-pfe.ko",67080u,""},
+{"hsan-lsw-pfe","/tewa/modules/hsan-lsw-pfe.ko",67880u,""},
 {"hsan-gemac-lan1","/tewa/modules/hsan-gemac-lan1.ko",23216u,""},
-{"hsan-net-v300","/tewa/modules/hsan-net-v300.ko",127392u,""},
+{"hsan-net-v300","/tewa/modules/hsan-net-v300.ko",128928u,""},
