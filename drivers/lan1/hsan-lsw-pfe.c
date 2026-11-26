@@ -1447,9 +1447,11 @@ static int hsan_pfe_prepare_aux_tables(struct platform_device *pdev,
 /* hi_pfe_napt_init @0x6390..0x6444 searches two bounded power-of-two
  * cost budgets. It then computes the 0x105 (IPv4) and 0x106 (IPv6)
  * hi_tab_mgr_create counts at @0x6540/0x65ec -> @0x5354:
- *   selected > 0: ipv6 = 8 * (512 << (selected - 1) + 64),
- *                 ipv4 = ipv6 - 256
- *   selected == 0: ipv6 = 512, ipv4 = 256.
+ *   selected > 0: ipv4 = 8 * ((512 << (selected - 1)) + 64),
+ *                 ipv6 = ipv4 - 256
+ *   selected == 0: ipv4 = 512, ipv6 = 256.
+ * @0x65c8 passes r4 (larger count) as r0 to @0x5354 for IPv4;
+ * r5 (smaller count) is passed as r1 for IPv6
  * Here parentheses follow the OEM actual (512<<n)+64 operation.
  * The second budget removes the selected first-stage capacity cost
  * (0x01a9a000 only for level 8, @0x63f0; lower levels use @0x6604).
@@ -1477,7 +1479,7 @@ static int hsan_pfe_oem_napt_geometry(const u32 memory[2],
      * observed region is smaller than 128 KiB: neither budget loop runs.
      */
     if (memory[1] < SZ_128K) {
-        if (observed_v4 != 256 || observed_v6 != 512)
+        if (observed_v4 != 512 || observed_v6 != 256)
             return -EINVAL;
         *primary = 0;
         *secondary = 0;
@@ -1520,11 +1522,11 @@ static int hsan_pfe_oem_napt_geometry(const u32 memory[2],
         second = level + 1;
     }
     if (!first) {
-        expected_v6 = 512;
-        expected_v4 = 256;
+        expected_v4 = 512;
+        expected_v6 = 256;
     } else {
-        expected_v6 = ((512U << (first - 1)) + 64U) * 8U;
-        expected_v4 = expected_v6 - 256U;
+        expected_v4 = ((512U << (first - 1)) + 64U) * 8U;
+        expected_v6 = expected_v4 - 256U;
     }
     if (observed_v4 != expected_v4 || observed_v6 != expected_v6)
         return -EINVAL;
