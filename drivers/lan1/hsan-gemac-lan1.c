@@ -143,6 +143,8 @@ out:
 }
 /* hi_kmac.ko hi_mac_hw_get_stats64 @.text+0x914 uses four low/high
  * register pairs, in the OEM-return order 0x400, 0x4d0, 0x4c0, 0x588.
+ * hi_mac_dump_cnt @0x784 also reads RX fcs_err/fifo_overrun and TX
+ * crc_err/fifo_underrun/byte_err at 0x4a0/0x4b0/0x540/0x580/0x590
  * The original reads low then high, with no guaranteed atomic latch.
  * Never present these words as proved GEMAC TX/RX bytes or proof of STOP.
  * Opt-in strictly read-only diagnostics are serialized with owner removal.
@@ -151,6 +153,7 @@ int hsan_gemac_lan1_oem_counters(struct hsan_gemac_oem_counters *out)
 {
     static const u16 lo_reg[HSAN_GEMAC_OEM_COUNTER_PAIRS] = {
         0x400, 0x4d0, 0x4c0, 0x588,
+        0x4a0, 0x4b0, 0x540, 0x580, 0x590,
     };
     struct hsan_mac_lan1 *mac;
     unsigned int i;

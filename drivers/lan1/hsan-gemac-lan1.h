@@ -31,10 +31,11 @@ struct hsan_gemac_snapshot {
     bool programmed_tx_pause;
 };
 /* Original hi_kmac.ko hi_mac_hw_get_stats64, ARM32 .text+0x914:
- * Four raw 64-bit register pairs. These are CPU-visible MMIO snapshots,
+ * Four raw totals plus five error pairs from hi_mac_dump_cnt @0x784.
+ * Nine raw 64-bit register pairs. These are CPU-visible MMIO snapshots,
  * not a verified LAN1 packet/byte accounting or DMA-drain certificate.
  */
-#define HSAN_GEMAC_OEM_COUNTER_PAIRS 4U
+#define HSAN_GEMAC_OEM_COUNTER_PAIRS 9U
 struct hsan_gemac_oem_counters {
     bool requested;
     bool valid;

@@ -4675,11 +4675,14 @@ static const char hsan_ethtool_stat_names[][ETH_GSTRING_LEN] = {
     "ips_row10_mac_err_drop",
     "ips_row10_burr_drop",
     "ips_row10_valid",
+    "gemac_rx_fcs_err", "gemac_rx_fifo_overrun",
+    "gemac_tx_crc_err", "gemac_tx_fifo_underrun",
+    "gemac_tx_byte_err",
 };
 #define HSAN_RX_WPTR_STATS_BASE (274 + 16 * HSAN_NET_RX_CHANNELS)
 static_assert(ARRAY_SIZE(hsan_ethtool_stat_names) == HSAN_RX_WPTR_STATS_BASE +
               4 * HSAN_NET_RX_CHANNELS + 300 +
-              6 * HSAN_DP_DIAG_QUEUE_COUNT + 88);
+              6 * HSAN_DP_DIAG_QUEUE_COUNT + 88 + 5);
 
 static void hsan_get_drvinfo(struct net_device *ndev,
                              struct ethtool_drvinfo *info)
@@ -5031,8 +5034,11 @@ static void hsan_get_ethtool_stats(struct net_device *ndev,
             data[160] = raw.valid;
             data[192] = raw.sample_begin_ns;
             data[193] = raw.sample_end_ns;
-            for (i = 0; i < HSAN_GEMAC_OEM_COUNTER_PAIRS; i++)
+            for (i = 0; i < 4; i++)
                 data[161 + i] = raw.raw[i];
+            for (i = 4; i < HSAN_GEMAC_OEM_COUNTER_PAIRS; i++)
+                data[ARRAY_SIZE(hsan_ethtool_stat_names) - 5 + i - 4] =
+                    raw.raw[i];
         }
         if (!hsan_gemac_lan1_snapshot(&mac)) {
             data[27] = mac.gate_on;
@@ -5121,7 +5127,7 @@ static void hsan_get_ethtool_stats(struct net_device *ndev,
         of_property_read_bool(p->dev->of_node,
                              "hsan,experimental-cpu-lan1-diagnostic")) {
         unsigned int row, field;
-        const unsigned int base = ARRAY_SIZE(hsan_ethtool_stat_names) - 88;
+        const unsigned int base = ARRAY_SIZE(hsan_ethtool_stat_names) - 88 - 5;
 
         /* OEM ips_diag_get_cnt @0x63b0: eleven rows, seven adjacent
          * registers. Raw observations only, not atomic snapshots or
