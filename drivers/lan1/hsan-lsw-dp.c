@@ -325,6 +325,7 @@ struct hsan_dp_queue_slot {
 static_assert(sizeof(struct hsan_dp_queue_slot) == HSAN_DP_QUEUE_STRIDE);
 
 struct hsan_dp_state {
+    bool eqm_counter_diagnostic;
 	enum hsan_dp_init_stage init_stage;
 	int init_errno;
 	bool mmio_attempted;
@@ -407,6 +408,50 @@ static struct hsan_dp_state *hsan_dp_owner;
  * but does not prove the engine stopped or make an old arm safely reusable.
  */
 static struct hsan_fam_init_record hsan_dp_fam_arm_history;
+
+/* Exact queue ranges recovered from the active OEM port10 and CPU rows.
+ * Sleeping context only: the existing EQM API serializes shared staging,
+ * checks each command, and poisons the engine after an uncertain failure.
+ * Partial rows are explicitly invalid; no retries and no DMA release.
+ */
+int hsan_lsw_dp_queue_counters(struct hsan_dp_queue_counters *out)
+{
+    struct hsan_dp_state *state;
+    unsigned int i;
+    int ret = -ENODEV;
+
+    memset(out, 0, sizeof(*out));
+    mutex_lock(&hsan_dp_owner_lock);
+    state = hsan_dp_owner;
+    if (!state || !state->clocks_on || state->quarantined)
+        goto unlock;
+    ret = -EACCES;
+    if (!state->eqm_counter_diagnostic || !state->queue_routing_verified ||
+        !state->pie_map_hw_committed)
+        goto unlock;
+    for (i = 0; i < HSAN_DP_DIAG_QUEUE_COUNT; i++) {
+        u32 table80[3], table81[4];
+        u16 qid = i < 8 ? 81 + i : 129 + i - 8;
+
+        if (hsan_lsw_dp_fam_cpu_fenced()) {
+            ret = -ESHUTDOWN;
+            goto unlock;
+        }
+        ret = hsan_lsw_eqm_read_table(81, qid, table81, 4, NULL);
+        if (ret)
+            goto unlock;
+        ret = hsan_lsw_eqm_read_table(80, qid, table80, 3, NULL);
+        if (ret)
+            goto unlock;
+        memcpy(out->words[i], table81, sizeof(table81));
+        out->words[i][4] = table80[2];
+        out->valid[i] = true;
+    }
+unlock:
+    mutex_unlock(&hsan_dp_owner_lock);
+    return ret;
+}
+EXPORT_SYMBOL_GPL(hsan_lsw_dp_queue_counters);
 
 int hsan_lsw_dp_init_snapshot(struct hsan_dp_init_snapshot *out)
 {
@@ -2430,6 +2475,8 @@ static int hsan_dp_probe_locked(struct platform_device *pdev)
     }
 	state->init_stage = HSAN_DP_INIT_PLAN_COMPLETE;
 	mutex_lock(&hsan_dp_owner_lock);
+    state->eqm_counter_diagnostic = of_property_read_bool(pdev->dev.of_node,
+        "hsan,experimental-eqm-queue-counters");
 	hsan_dp_owner = state;
 	mutex_unlock(&hsan_dp_owner_lock);
     dev_warn(&pdev->dev,

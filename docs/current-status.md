@@ -1,3 +1,13 @@
+## 最新 RAM 队列诊断 20261126T112436199891Z
+
+新候选 lan1-eqm-counters 已正常软件重启加载，八模块成功，60秒观察无隔离，894项 ethtool 统计采样成功，LAN1 与 CPU 共40队列均有效
+
+真实流量前后 TX 完成10→16，LAN1 q81 table81 word3同步10→16，CPU q129..160全部采样词为0，RX仍0，双向ICMP失败，采样时dma_active=1、dma_quarantined=0、EQM未隔离
+
+这不是网络可用或STOP证明，之前code11发生于旧RAM会话，当前新会话未复现不代表PHY热协商问题修复，所有DMA释放限制继续有效
+
+下一步继续核对入站报文的CPU转发规则及队列出口，不能由离散零值快照断言CPU队列从未收到报文，最终验收仍0/4
+
 ## 交接前最新状态与 EQM 读取边界
 
 2026-11-26T11:14:37Z 只读复核：当前会话 20261126T070342079499Z 已在内核运行约 11544 秒后因 PHY3 重新协商超出固定 GEMAC 模式触发 code11，TX submitted 23 / completed 22，RX 0，dma_active=0，dma_quarantined=1，全部 DMA 映射保留

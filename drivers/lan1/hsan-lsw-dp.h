@@ -88,4 +88,14 @@ void hsan_lsw_dp_fam_stop_fence(void);
  * CPU-side handoff fence. Callers must stop publishing DMA descriptors.
  */
 bool hsan_lsw_dp_fam_cpu_fenced(void);
+/* OEM hi_queue_port_cnt_get tables 81/80; separate non-atomic samples.
+ * A read command is still an MMIO write and remains CPU-fence protected.
+ * Counter clear-on-read behavior is unqualified; never an ownership ACK.
+ */
+#define HSAN_DP_DIAG_QUEUE_COUNT 40
+struct hsan_dp_queue_counters {
+    u32 words[HSAN_DP_DIAG_QUEUE_COUNT][5]; /* table81[0..3], table80[2] */
+    bool valid[HSAN_DP_DIAG_QUEUE_COUNT];
+};
+int hsan_lsw_dp_queue_counters(struct hsan_dp_queue_counters *out);
 #endif
