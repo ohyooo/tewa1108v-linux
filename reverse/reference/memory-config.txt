@@ -1,0 +1,4 @@
+[queue] szie=36Mbyte(0x2400000)
+[voip] szie=0Mbyte(0x0)
+[flow] szie=4Mbyte(0x410000)
+[woe] szie=0Mbyte(0x0)

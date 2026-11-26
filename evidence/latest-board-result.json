@@ -1,0 +1,59 @@
+{
+  "session": "20261126T003926780004Z",
+  "kernel_boot": "LINUX_7_3_5_VERSION_OBSERVED",
+  "running_release": "7.3.5",
+  "userspace_arch": "armel",
+  "module_binding": "LAN1_OWNER_CONFIRMED_8_LIVE",
+  "module_file_hashes": "PASS",
+  "module_live_names": [
+    "hsan_gemac_lan1",
+    "hsan_lsw_crg",
+    "hsan_lsw_csr",
+    "hsan_lsw_dp",
+    "hsan_lsw_pfe",
+    "hsan_lsw_platform",
+    "hsan_mdio",
+    "hsan_net_v300"
+  ],
+  "phy3_id": "0x20669a22",
+  "dp_init": {
+    "owner": 1,
+    "stage": 7,
+    "errno": 0,
+    "attempted": 1,
+    "quarantined": 0
+  },
+  "fam_init_ack_polls": 1,
+  "eqm_ordinary_rows": {
+    "written": 192,
+    "expected": 192,
+    "readback": true
+  },
+  "eqm_queue_routes": {
+    "ports": 25,
+    "ordinary": 192,
+    "auxiliary": 8
+  },
+  "eqm_default_shaping_verified": 160,
+  "pie_boot_reset_verified": true,
+  "pie_map_data_verified": {
+    "slots": 8,
+    "gro_start": 4,
+    "gro_count": 4
+  },
+  "pie_acp_boot_verified": true,
+  "pfe_globals_submitted": true,
+  "pfe_opp_prelude_verified": true,
+  "lan1_opp_queue_map_verified": true,
+  "lan1_pub_verified": true,
+  "ifc_tag_image_verified": true,
+  "ifc_default_commands_accepted": 11,
+  "lsw_profile_missing": [],
+  "ndo_open_rc": -13,
+  "network_usable": "NO_NDO_OPEN_REJECTED",
+  "gro": "NOT_RUN",
+  "dma_drain": "NOT_RUN",
+  "wdt_driver_bound": "OBSERVED",
+  "wdt_device_number": "254:0",
+  "wdt_stability_60s": "OBSERVED_NO_RESET_60S"
+}

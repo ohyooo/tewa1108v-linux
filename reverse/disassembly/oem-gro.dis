@@ -1,0 +1,662 @@
+
+work/oem-vendor/lib/hisilicon/ko/hi_kcfe_lrn_gro.ko:	file format elf32-littlearm
+
+Disassembly of section .text:
+
+00000000 <hi_cfe_lrn_gro_pkt_num_set>:
+       0: e3003000     	movw	r3, #0x0
+			00000000:  R_ARM_MOVW_ABS_NC	.LANCHOR0
+       4: e3403000     	movt	r3, #0x0
+			00000004:  R_ARM_MOVT_ABS	.LANCHOR0
+       8: e5830000     	str	r0, [r3]
+       c: e12fff1e     	bx	lr
+
+00000010 <hi_cfe_lrn_gro_get_age>:
+      10: e3500000     	cmp	r0, #0
+      14: 0a00000d     	beq	0x50 <hi_cfe_lrn_gro_get_age+0x40> @ imm = #0x34
+      18: e59020b0     	ldr	r2, [r0, #0xb0]
+      1c: e3510000     	cmp	r1, #0
+      20: 13520000     	cmpne	r2, #0
+      24: 03a00001     	moveq	r0, #1
+      28: 13a00000     	movne	r0, #0
+      2c: 0a000007     	beq	0x50 <hi_cfe_lrn_gro_get_age+0x40> @ imm = #0x1c
+      30: e5d2c004     	ldrb	r12, [r2, #0x4]
+      34: e35c0001     	cmp	r12, #1
+      38: 0a000002     	beq	0x48 <hi_cfe_lrn_gro_get_age+0x38> @ imm = #0x8
+      3c: e3a02001     	mov	r2, #1
+      40: e5812000     	str	r2, [r1]
+      44: e12fff1e     	bx	lr
+      48: e5920008     	ldr	r0, [r2, #0x8]
+      4c: eafffffe     	b	0x4c <hi_cfe_lrn_gro_get_age+0x3c> @ imm = #-0x8
+			0000004c:  R_ARM_JUMP24	hi_adp_flow_get_age
+      50: e92d4010     	push	{r4, lr}
+      54: e3000000     	movw	r0, #0x0
+			00000054:  R_ARM_MOVW_ABS_NC	.LC0
+      58: e3400000     	movt	r0, #0x0
+			00000058:  R_ARM_MOVT_ABS	.LC0
+      5c: ebfffffe     	bl	0x5c <hi_cfe_lrn_gro_get_age+0x4c> @ imm = #-0x8
+			0000005c:  R_ARM_CALL	printk
+      60: e30f0fe1     	movw	r0, #0xffe1
+      64: e3480fff     	movt	r0, #0x8fff
+      68: e8bd8010     	pop	{r4, pc}
+
+0000006c <hi_cfe_lrn_gro_del>:
+      6c: e3500000     	cmp	r0, #0
+      70: 0a000007     	beq	0x94 <hi_cfe_lrn_gro_del+0x28> @ imm = #0x1c
+      74: e59030b0     	ldr	r3, [r0, #0xb0]
+      78: e3530000     	cmp	r3, #0
+      7c: 012fff1e     	bxeq	lr
+      80: e5d32004     	ldrb	r2, [r3, #0x4]
+      84: e3520001     	cmp	r2, #1
+      88: 112fff1e     	bxne	lr
+      8c: e5930008     	ldr	r0, [r3, #0x8]
+      90: eafffffe     	b	0x90 <hi_cfe_lrn_gro_del+0x24> @ imm = #-0x8
+			00000090:  R_ARM_JUMP24	hi_adp_flow_del
+      94: e3000000     	movw	r0, #0x0
+			00000094:  R_ARM_MOVW_ABS_NC	.LC1
+      98: e3400000     	movt	r0, #0x0
+			00000098:  R_ARM_MOVT_ABS	.LC1
+      9c: eafffffe     	b	0x9c <hi_cfe_lrn_gro_del+0x30> @ imm = #-0x8
+			0000009c:  R_ARM_JUMP24	printk
+
+000000a0 <hi_cfe_lrn_gro_check>:
+      a0: e300c000     	movw	r12, #0x0
+			000000a0:  R_ARM_MOVW_ABS_NC	.LANCHOR0
+      a4: e340c000     	movt	r12, #0x0
+			000000a4:  R_ARM_MOVT_ABS	.LANCHOR0
+      a8: e3520000     	cmp	r2, #0
+      ac: 13500000     	cmpne	r0, #0
+      b0: e59c3004     	ldr	r3, [r12, #0x4]
+      b4: e2833001     	add	r3, r3, #1
+      b8: e58c3004     	str	r3, [r12, #0x4]
+      bc: 0a000019     	beq	0x128 <hi_cfe_lrn_gro_check+0x88> @ imm = #0x64
+      c0: e5923118     	ldr	r3, [r2, #0x118]
+      c4: e3530000     	cmp	r3, #0
+      c8: 0a000016     	beq	0x128 <hi_cfe_lrn_gro_check+0x88> @ imm = #0x58
+      cc: e5d03004     	ldrb	r3, [r0, #0x4]
+      d0: e3530000     	cmp	r3, #0
+      d4: 0a000016     	beq	0x134 <hi_cfe_lrn_gro_check+0x94> @ imm = #0x58
+      d8: e5902000     	ldr	r2, [r0]
+      dc: e1a0000c     	mov	r0, r12
+      e0: e0822003     	add	r2, r2, r3
+      e4: e5b0301c     	ldr	r3, [r0, #0x1c]!
+      e8: e1d210b2     	ldrh	r1, [r2, #2]
+      ec: e1530000     	cmp	r3, r0
+      f0: e6bf1fb1     	rev16	r1, r1
+      f4: e6ff1071     	uxth	r1, r1
+      f8: 1a000003     	bne	0x10c <hi_cfe_lrn_gro_check+0x6c> @ imm = #0xc
+      fc: ea00000e     	b	0x13c <hi_cfe_lrn_gro_check+0x9c> @ imm = #0x38
+     100: e5933000     	ldr	r3, [r3]
+     104: e1530000     	cmp	r3, r0
+     108: 0a00000b     	beq	0x13c <hi_cfe_lrn_gro_check+0x9c> @ imm = #0x2c
+     10c: e1d320b8     	ldrh	r2, [r3, #8]
+     110: e1520001     	cmp	r2, r1
+     114: 1afffff9     	bne	0x100 <hi_cfe_lrn_gro_check+0x60> @ imm = #-0x1c
+     118: e3530000     	cmp	r3, #0
+     11c: 0a000006     	beq	0x13c <hi_cfe_lrn_gro_check+0x9c> @ imm = #0x18
+     120: e3a00000     	mov	r0, #0
+     124: e12fff1e     	bx	lr
+     128: e30f0fe1     	movw	r0, #0xffe1
+     12c: e3480fff     	movt	r0, #0x8fff
+     130: e12fff1e     	bx	lr
+     134: e3a00209     	mov	r0, #-1879048192
+     138: e12fff1e     	bx	lr
+     13c: e59c300c     	ldr	r3, [r12, #0xc]
+     140: e3a00209     	mov	r0, #-1879048192
+     144: e2833001     	add	r3, r3, #1
+     148: e58c300c     	str	r3, [r12, #0xc]
+     14c: e12fff1e     	bx	lr
+
+00000150 <hi_cfe_lrn_gro_add>:
+     150: e92d41f0     	push	{r4, r5, r6, r7, r8, lr}
+     154: e1a05003     	mov	r5, r3
+     158: e59f32ac     	ldr	r3, [pc, #0x2ac]        @ 0x40c <hi_cfe_lrn_gro_add+0x2bc>
+     15c: e24dd0f0     	sub	sp, sp, #240
+     160: e1a06000     	mov	r6, r0
+     164: e1a0700d     	mov	r7, sp
+     168: e1a04001     	mov	r4, r1
+     16c: e1a00007     	mov	r0, r7
+     170: e3a020ec     	mov	r2, #236
+     174: e3a01000     	mov	r1, #0
+     178: e5933000     	ldr	r3, [r3]
+     17c: e58d30ec     	str	r3, [sp, #0xec]
+     180: e3a03000     	mov	r3, #0
+     184: ebfffffe     	bl	0x184 <hi_cfe_lrn_gro_add+0x34> @ imm = #-0x8
+			00000184:  R_ARM_CALL	memset
+     188: e3560000     	cmp	r6, #0
+     18c: 0a00008f     	beq	0x3d0 <hi_cfe_lrn_gro_add+0x280> @ imm = #0x23c
+     190: e59680b0     	ldr	r8, [r6, #0xb0]
+     194: e3580000     	cmp	r8, #0
+     198: 0a00008c     	beq	0x3d0 <hi_cfe_lrn_gro_add+0x280> @ imm = #0x230
+     19c: e3550000     	cmp	r5, #0
+     1a0: 13540000     	cmpne	r4, #0
+     1a4: 0a000089     	beq	0x3d0 <hi_cfe_lrn_gro_add+0x280> @ imm = #0x224
+     1a8: e5d43006     	ldrb	r3, [r4, #0x6]
+     1ac: e3130010     	tst	r3, #16
+     1b0: 0a00007c     	beq	0x3a8 <hi_cfe_lrn_gro_add+0x258> @ imm = #0x1f0
+     1b4: e5d42004     	ldrb	r2, [r4, #0x4]
+     1b8: e5943000     	ldr	r3, [r4]
+     1bc: e0833002     	add	r3, r3, r2
+     1c0: e5d3300d     	ldrb	r3, [r3, #0xd]
+     1c4: e3130007     	tst	r3, #7
+     1c8: 1a000017     	bne	0x22c <hi_cfe_lrn_gro_add+0xdc> @ imm = #0x5c
+     1cc: e59530c4     	ldr	r3, [r5, #0xc4]
+     1d0: e3d33007     	bics	r3, r3, #7
+     1d4: 0a000002     	beq	0x1e4 <hi_cfe_lrn_gro_add+0x94> @ imm = #0x8
+     1d8: e5d330c0     	ldrb	r3, [r3, #0xc0]
+     1dc: e3530003     	cmp	r3, #3
+     1e0: 1a000011     	bne	0x22c <hi_cfe_lrn_gro_add+0xdc> @ imm = #0x44
+     1e4: e1a00008     	mov	r0, r8
+     1e8: ebfffffe     	bl	0x1e8 <hi_cfe_lrn_gro_add+0x98> @ imm = #-0x8
+			000001e8:  R_ARM_CALL	hi_cfe_lrn_check_flow_exist
+     1ec: e3500000     	cmp	r0, #0
+     1f0: 0a000012     	beq	0x240 <hi_cfe_lrn_gro_add+0xf0> @ imm = #0x48
+     1f4: e3003000     	movw	r3, #0x0
+			000001f4:  R_ARM_MOVW_ABS_NC	.LANCHOR0
+     1f8: e3403000     	movt	r3, #0x0
+			000001f8:  R_ARM_MOVT_ABS	.LANCHOR0
+     1fc: e3a00000     	mov	r0, #0
+     200: e5932018     	ldr	r2, [r3, #0x18]
+     204: e2822001     	add	r2, r2, #1
+     208: e5832018     	str	r2, [r3, #0x18]
+     20c: e59f31f8     	ldr	r3, [pc, #0x1f8]        @ 0x40c <hi_cfe_lrn_gro_add+0x2bc>
+     210: e5932000     	ldr	r2, [r3]
+     214: e59d30ec     	ldr	r3, [sp, #0xec]
+     218: e0332002     	eors	r2, r3, r2
+     21c: e3a03000     	mov	r3, #0
+     220: 1a000069     	bne	0x3cc <hi_cfe_lrn_gro_add+0x27c> @ imm = #0x1a4
+     224: e28dd0f0     	add	sp, sp, #240
+     228: e8bd81f0     	pop	{r4, r5, r6, r7, r8, pc}
+     22c: e5d530b6     	ldrb	r3, [r5, #0xb6]
+     230: e3130008     	tst	r3, #8
+     234: 1a000042     	bne	0x344 <hi_cfe_lrn_gro_add+0x1f4> @ imm = #0x108
+     238: e3a00209     	mov	r0, #-1879048192
+     23c: eafffff2     	b	0x20c <hi_cfe_lrn_gro_add+0xbc> @ imm = #-0x38
+     240: e2863064     	add	r3, r6, #100
+     244: e8930003     	ldm	r3, {r0, r1}
+     248: e8870003     	stm	r7, {r0, r1}
+     24c: e1a01006     	mov	r1, r6
+     250: e1a00007     	mov	r0, r7
+     254: ebfffffe     	bl	0x254 <hi_cfe_lrn_gro_add+0x104> @ imm = #-0x8
+			00000254:  R_ARM_CALL	hi_cfe_acc_set_l4rule
+     258: e3750048     	cmn	r5, #72
+     25c: 0a000012     	beq	0x2ac <hi_cfe_lrn_gro_add+0x15c> @ imm = #0x48
+     260: e5d53051     	ldrb	r3, [r5, #0x51]
+     264: e31300c0     	tst	r3, #192
+     268: 0a000006     	beq	0x288 <hi_cfe_lrn_gro_add+0x138> @ imm = #0x18
+     26c: e1d525b0     	ldrh	r2, [r5, #80]
+     270: e7eb2052     	ubfx	r2, r2, #0x0, #0xc
+     274: e1cd27b4     	strh	r2, [sp, #116]
+     278: e3a02c81     	mov	r2, #33024
+     27c: e1cd27b0     	strh	r2, [sp, #112]
+     280: e3a02001     	mov	r2, #1
+     284: e58d2068     	str	r2, [sp, #0x68]
+     288: e353007f     	cmp	r3, #127
+     28c: 9a000006     	bls	0x2ac <hi_cfe_lrn_gro_add+0x15c> @ imm = #0x18
+     290: e3a03c81     	mov	r3, #33024
+     294: e1cd37b2     	strh	r3, [sp, #114]
+     298: e1d535b2     	ldrh	r3, [r5, #82]
+     29c: e7eb3053     	ubfx	r3, r3, #0x0, #0xc
+     2a0: e1cd37b6     	strh	r3, [sp, #118]
+     2a4: e3a03001     	mov	r3, #1
+     2a8: e58d306c     	str	r3, [sp, #0x6c]
+     2ac: e59620b0     	ldr	r2, [r6, #0xb0]
+     2b0: e3004000     	movw	r4, #0x0
+			000002b0:  R_ARM_MOVW_ABS_NC	.LANCHOR0
+     2b4: e3404000     	movt	r4, #0x0
+			000002b4:  R_ARM_MOVT_ABS	.LANCHOR0
+     2b8: e5923000     	ldr	r3, [r2]
+     2bc: e2833001     	add	r3, r3, #1
+     2c0: e5823000     	str	r3, [r2]
+     2c4: e5d22004     	ldrb	r2, [r2, #0x4]
+     2c8: e3520002     	cmp	r2, #2
+     2cc: e5942000     	ldr	r2, [r4]
+     2d0: 0a000022     	beq	0x360 <hi_cfe_lrn_gro_add+0x210> @ imm = #0x88
+     2d4: e1520003     	cmp	r2, r3
+     2d8: 8a000025     	bhi	0x374 <hi_cfe_lrn_gro_add+0x224> @ imm = #0x94
+     2dc: e1a00007     	mov	r0, r7
+     2e0: e2882008     	add	r2, r8, #8
+     2e4: e28d1058     	add	r1, sp, #88
+     2e8: e3a07001     	mov	r7, #1
+     2ec: e3a03005     	mov	r3, #5
+     2f0: e58d70e4     	str	r7, [sp, #0xe4]
+     2f4: e5cd3058     	strb	r3, [sp, #0x58]
+     2f8: ebfffffe     	bl	0x2f8 <hi_cfe_lrn_gro_add+0x1a8> @ imm = #-0x8
+			000002f8:  R_ARM_CALL	hi_adp_flow_add
+     2fc: e3500000     	cmp	r0, #0
+     300: 05c87004     	strbeq	r7, [r8, #0x4]
+     304: 0affffc0     	beq	0x20c <hi_cfe_lrn_gro_add+0xbc> @ imm = #-0x100
+     308: e3a03002     	mov	r3, #2
+     30c: e5c83004     	strb	r3, [r8, #0x4]
+     310: e5943014     	ldr	r3, [r4, #0x14]
+     314: e5d520b6     	ldrb	r2, [r5, #0xb6]
+     318: e2833001     	add	r3, r3, #1
+     31c: e5843014     	str	r3, [r4, #0x14]
+     320: e3120008     	tst	r2, #8
+     324: 0affffc3     	beq	0x238 <hi_cfe_lrn_gro_add+0xe8> @ imm = #-0xf4
+     328: e59630a4     	ldr	r3, [r6, #0xa4]
+     32c: e3000000     	movw	r0, #0x0
+			0000032c:  R_ARM_MOVW_ABS_NC	.LC7
+     330: e3400000     	movt	r0, #0x0
+			00000330:  R_ARM_MOVT_ABS	.LC7
+     334: e5931000     	ldr	r1, [r3]
+     338: ebfffffe     	bl	0x338 <hi_cfe_lrn_gro_add+0x1e8> @ imm = #-0x8
+			00000338:  R_ARM_CALL	hi_dfx_print
+     33c: e3a00209     	mov	r0, #-1879048192
+     340: eaffffb1     	b	0x20c <hi_cfe_lrn_gro_add+0xbc> @ imm = #-0x13c
+     344: e59630a4     	ldr	r3, [r6, #0xa4]
+     348: e3000000     	movw	r0, #0x0
+			00000348:  R_ARM_MOVW_ABS_NC	.LC5
+     34c: e3400000     	movt	r0, #0x0
+			0000034c:  R_ARM_MOVT_ABS	.LC5
+     350: e5931000     	ldr	r1, [r3]
+     354: ebfffffe     	bl	0x354 <hi_cfe_lrn_gro_add+0x204> @ imm = #-0x8
+			00000354:  R_ARM_CALL	hi_dfx_print
+     358: e3a00209     	mov	r0, #-1879048192
+     35c: eaffffaa     	b	0x20c <hi_cfe_lrn_gro_add+0xbc> @ imm = #-0x158
+     360: e1530182     	cmp	r3, r2, lsl #3
+     364: 35943010     	ldrlo	r3, [r4, #0x10]
+     368: 32833001     	addlo	r3, r3, #1
+     36c: 35843010     	strlo	r3, [r4, #0x10]
+     370: 2affffd7     	bhs	0x2d4 <hi_cfe_lrn_gro_add+0x184> @ imm = #-0xa4
+     374: e5d500b6     	ldrb	r0, [r5, #0xb6]
+     378: e7e001d0     	ubfx	r0, r0, #0x3, #0x1
+     37c: e3500000     	cmp	r0, #0
+     380: 0affffa1     	beq	0x20c <hi_cfe_lrn_gro_add+0xbc> @ imm = #-0x17c
+     384: e59610a4     	ldr	r1, [r6, #0xa4]
+     388: e3000000     	movw	r0, #0x0
+			00000388:  R_ARM_MOVW_ABS_NC	.LC6
+     38c: e3400000     	movt	r0, #0x0
+			0000038c:  R_ARM_MOVT_ABS	.LC6
+     390: e5943000     	ldr	r3, [r4]
+     394: e5982000     	ldr	r2, [r8]
+     398: e5911000     	ldr	r1, [r1]
+     39c: ebfffffe     	bl	0x39c <hi_cfe_lrn_gro_add+0x24c> @ imm = #-0x8
+			0000039c:  R_ARM_CALL	hi_dfx_print
+     3a0: e3a00000     	mov	r0, #0
+     3a4: eaffff98     	b	0x20c <hi_cfe_lrn_gro_add+0xbc> @ imm = #-0x1a0
+     3a8: e5d530b6     	ldrb	r3, [r5, #0xb6]
+     3ac: e3130008     	tst	r3, #8
+     3b0: 0affffa0     	beq	0x238 <hi_cfe_lrn_gro_add+0xe8> @ imm = #-0x180
+     3b4: e59630a4     	ldr	r3, [r6, #0xa4]
+     3b8: e3000000     	movw	r0, #0x0
+			000003b8:  R_ARM_MOVW_ABS_NC	.LC4
+     3bc: e3400000     	movt	r0, #0x0
+			000003bc:  R_ARM_MOVT_ABS	.LC4
+     3c0: e5931000     	ldr	r1, [r3]
+     3c4: ebfffffe     	bl	0x3c4 <hi_cfe_lrn_gro_add+0x274> @ imm = #-0x8
+			000003c4:  R_ARM_CALL	hi_dfx_print
+     3c8: eaffff9a     	b	0x238 <hi_cfe_lrn_gro_add+0xe8> @ imm = #-0x198
+     3cc: ebfffffe     	bl	0x3cc <hi_cfe_lrn_gro_add+0x27c> @ imm = #-0x8
+			000003cc:  R_ARM_CALL	__stack_chk_fail
+     3d0: e3000000     	movw	r0, #0x0
+			000003d0:  R_ARM_MOVW_ABS_NC	.LC2
+     3d4: e3400000     	movt	r0, #0x0
+			000003d4:  R_ARM_MOVT_ABS	.LC2
+     3d8: ebfffffe     	bl	0x3d8 <hi_cfe_lrn_gro_add+0x288> @ imm = #-0x8
+			000003d8:  R_ARM_CALL	printk
+     3dc: e5d530b6     	ldrb	r3, [r5, #0xb6]
+     3e0: e3130008     	tst	r3, #8
+     3e4: 0a000005     	beq	0x400 <hi_cfe_lrn_gro_add+0x2b0> @ imm = #0x14
+     3e8: e3000000     	movw	r0, #0x0
+			000003e8:  R_ARM_MOVW_ABS_NC	.LC3
+     3ec: e3400000     	movt	r0, #0x0
+			000003ec:  R_ARM_MOVT_ABS	.LC3
+     3f0: ebfffffe     	bl	0x3f0 <hi_cfe_lrn_gro_add+0x2a0> @ imm = #-0x8
+			000003f0:  R_ARM_CALL	hi_dfx_print
+     3f4: e30f0fe1     	movw	r0, #0xffe1
+     3f8: e3480fff     	movt	r0, #0x8fff
+     3fc: eaffff82     	b	0x20c <hi_cfe_lrn_gro_add+0xbc> @ imm = #-0x1f8
+     400: e30f0fe1     	movw	r0, #0xffe1
+     404: e3480fff     	movt	r0, #0x8fff
+     408: eaffff7f     	b	0x20c <hi_cfe_lrn_gro_add+0xbc> @ imm = #-0x204
+     40c: 00 00 00 00  	.word	0x00000000
+			0000040c:  R_ARM_ABS32	__stack_chk_guard
+
+00000410 <hi_cfe_lrn_gro_get_cnt>:
+     410: e59f0000     	ldr	r0, [pc]                @ 0x418 <hi_cfe_lrn_gro_get_cnt+0x8>
+     414: e12fff1e     	bx	lr
+     418: 04 00 00 00  	.word	0x00000004
+			00000418:  R_ARM_ABS32	.bss
+
+0000041c <hi_cfe_lrn_gro_clr_cnt>:
+     41c: e3a03018     	mov	r3, #24
+     420: e59f0024     	ldr	r0, [pc, #0x24]         @ 0x44c <hi_cfe_lrn_gro_clr_cnt+0x30>
+     424: e1a01003     	mov	r1, r3
+     428: e92d4010     	push	{r4, lr}
+     42c: e3a02000     	mov	r2, #0
+     430: ebfffffe     	bl	0x430 <hi_cfe_lrn_gro_clr_cnt+0x14> @ imm = #-0x8
+			00000430:  R_ARM_CALL	memset_s
+     434: e3500000     	cmp	r0, #0
+     438: 08bd8010     	popeq	{r4, pc}
+     43c: e3000000     	movw	r0, #0x0
+			0000043c:  R_ARM_MOVW_ABS_NC	.LC9
+     440: e3400000     	movt	r0, #0x0
+			00000440:  R_ARM_MOVT_ABS	.LC9
+     444: e8bd4010     	pop	{r4, lr}
+     448: eafffffe     	b	0x448 <hi_cfe_lrn_gro_clr_cnt+0x2c> @ imm = #-0x8
+			00000448:  R_ARM_JUMP24	printk
+     44c: 04 00 00 00  	.word	0x00000004
+			0000044c:  R_ARM_ABS32	.bss
+
+00000450 <hi_cfe_lrn_gro_pkt_num_get>:
+     450: e3003000     	movw	r3, #0x0
+			00000450:  R_ARM_MOVW_ABS_NC	.LANCHOR0
+     454: e3403000     	movt	r3, #0x0
+			00000454:  R_ARM_MOVT_ABS	.LANCHOR0
+     458: e5930000     	ldr	r0, [r3]
+     45c: e12fff1e     	bx	lr
+
+00000460 <hi_cfe_lrn_gro_dport_list_head_get>:
+     460: e59f0000     	ldr	r0, [pc]                @ 0x468 <hi_cfe_lrn_gro_dport_list_head_get+0x8>
+     464: e12fff1e     	bx	lr
+     468: 1c 00 00 00  	.word	0x0000001c
+			00000468:  R_ARM_ABS32	.bss
+
+0000046c <hi_cfe_lrn_gro_dport_add>:
+     46c: e92d4070     	push	{r4, r5, r6, lr}
+     470: e3006000     	movw	r6, #0x0
+			00000470:  R_ARM_MOVW_ABS_NC	.LANCHOR0
+     474: e3406000     	movt	r6, #0x0
+			00000474:  R_ARM_MOVT_ABS	.LANCHOR0
+     478: e1a04006     	mov	r4, r6
+     47c: e1a05000     	mov	r5, r0
+     480: e5b4301c     	ldr	r3, [r4, #0x1c]!
+     484: e1530004     	cmp	r3, r4
+     488: 1a000003     	bne	0x49c <hi_cfe_lrn_gro_dport_add+0x30> @ imm = #0xc
+     48c: ea000009     	b	0x4b8 <hi_cfe_lrn_gro_dport_add+0x4c> @ imm = #0x24
+     490: e5933000     	ldr	r3, [r3]
+     494: e1530004     	cmp	r3, r4
+     498: 0a000006     	beq	0x4b8 <hi_cfe_lrn_gro_dport_add+0x4c> @ imm = #0x18
+     49c: e1d320b8     	ldrh	r2, [r3, #8]
+     4a0: e1520005     	cmp	r2, r5
+     4a4: 1afffff9     	bne	0x490 <hi_cfe_lrn_gro_dport_add+0x24> @ imm = #-0x1c
+     4a8: e3530000     	cmp	r3, #0
+     4ac: 0a000001     	beq	0x4b8 <hi_cfe_lrn_gro_dport_add+0x4c> @ imm = #0x4
+     4b0: e3a00000     	mov	r0, #0
+     4b4: e8bd8070     	pop	{r4, r5, r6, pc}
+     4b8: e3003000     	movw	r3, #0x0
+			000004b8:  R_ARM_MOVW_ABS_NC	kmalloc_caches
+     4bc: e3403000     	movt	r3, #0x0
+			000004bc:  R_ARM_MOVT_ABS	kmalloc_caches
+     4c0: e3a0200c     	mov	r2, #12
+     4c4: e3a01eb2     	mov	r1, #2848
+     4c8: e5930018     	ldr	r0, [r3, #0x18]
+     4cc: ebfffffe     	bl	0x4cc <hi_cfe_lrn_gro_dport_add+0x60> @ imm = #-0x8
+			000004cc:  R_ARM_CALL	kmem_cache_alloc_trace
+     4d0: e2503000     	subs	r3, r0, #0
+     4d4: 0a000006     	beq	0x4f4 <hi_cfe_lrn_gro_dport_add+0x88> @ imm = #0x18
+     4d8: e596201c     	ldr	r2, [r6, #0x1c]
+     4dc: e3a00000     	mov	r0, #0
+     4e0: e586301c     	str	r3, [r6, #0x1c]
+     4e4: e5823004     	str	r3, [r2, #0x4]
+     4e8: e8830014     	stm	r3, {r2, r4}
+     4ec: e1c350b8     	strh	r5, [r3, #8]
+     4f0: e8bd8070     	pop	{r4, r5, r6, pc}
+     4f4: e3000000     	movw	r0, #0x0
+			000004f4:  R_ARM_MOVW_ABS_NC	.LC10
+     4f8: e3400000     	movt	r0, #0x0
+			000004f8:  R_ARM_MOVT_ABS	.LC10
+     4fc: ebfffffe     	bl	0x4fc <hi_cfe_lrn_gro_dport_add+0x90> @ imm = #-0x8
+			000004fc:  R_ARM_CALL	printk
+     500: e3a00209     	mov	r0, #-1879048192
+     504: e8bd8070     	pop	{r4, r5, r6, pc}
+
+00000508 <hi_cfe_lrn_gro_dport_del>:
+     508: e3002000     	movw	r2, #0x0
+			00000508:  R_ARM_MOVW_ABS_NC	.LANCHOR0
+     50c: e3402000     	movt	r2, #0x0
+			0000050c:  R_ARM_MOVT_ABS	.LANCHOR0
+     510: e1a01000     	mov	r1, r0
+     514: e5b2001c     	ldr	r0, [r2, #0x1c]!
+     518: e1500002     	cmp	r0, r2
+     51c: 1a000003     	bne	0x530 <hi_cfe_lrn_gro_dport_del+0x28> @ imm = #0xc
+     520: e12fff1e     	bx	lr
+     524: e5900000     	ldr	r0, [r0]
+     528: e1500002     	cmp	r0, r2
+     52c: 012fff1e     	bxeq	lr
+     530: e1d030b8     	ldrh	r3, [r0, #8]
+     534: e1530001     	cmp	r3, r1
+     538: 1afffff9     	bne	0x524 <hi_cfe_lrn_gro_dport_del+0x1c> @ imm = #-0x1c
+     53c: e3500000     	cmp	r0, #0
+     540: 012fff1e     	bxeq	lr
+     544: e8900006     	ldm	r0, {r1, r2}
+     548: e3a03000     	mov	r3, #0
+     54c: e1c030b8     	strh	r3, [r0, #8]
+     550: e5812004     	str	r2, [r1, #0x4]
+     554: e5821000     	str	r1, [r2]
+     558: e5803000     	str	r3, [r0]
+     55c: e5803004     	str	r3, [r0, #0x4]
+     560: eafffffe     	b	0x560 <hi_cfe_lrn_gro_dport_del+0x58> @ imm = #-0x8
+			00000560:  R_ARM_JUMP24	kfree
+
+00000564 <hi_cfe_lrn_gro_dport_dump>:
+     564: e92d41f0     	push	{r4, r5, r6, r7, r8, lr}
+     568: ebfffffe     	bl	0x568 <hi_cfe_lrn_gro_dport_dump+0x4> @ imm = #-0x8
+			00000568:  R_ARM_CALL	hi_cfe_lrn_gro_dport_list_head_get
+     56c: e5904000     	ldr	r4, [r0]
+     570: e1500004     	cmp	r0, r4
+     574: 08bd81f0     	popeq	{r4, r5, r6, r7, r8, pc}
+     578: e3007000     	movw	r7, #0x0
+			00000578:  R_ARM_MOVW_ABS_NC	.LC0
+     57c: e3407000     	movt	r7, #0x0
+			0000057c:  R_ARM_MOVT_ABS	.LC0
+     580: e1a06000     	mov	r6, r0
+     584: e3a05000     	mov	r5, #0
+     588: e1d420b8     	ldrh	r2, [r4, #8]
+     58c: e1a01005     	mov	r1, r5
+     590: e1a00007     	mov	r0, r7
+     594: e2855001     	add	r5, r5, #1
+     598: ebfffffe     	bl	0x598 <hi_cfe_lrn_gro_dport_dump+0x34> @ imm = #-0x8
+			00000598:  R_ARM_CALL	hi_dfx_print
+     59c: e5944000     	ldr	r4, [r4]
+     5a0: e1540006     	cmp	r4, r6
+     5a4: 1afffff7     	bne	0x588 <hi_cfe_lrn_gro_dport_dump+0x24> @ imm = #-0x24
+     5a8: e8bd81f0     	pop	{r4, r5, r6, r7, r8, pc}
+
+000005ac <hi_cfe_gro_dfx_dport_del>:
+     5ac: e92d4010     	push	{r4, lr}
+     5b0: e3a02000     	mov	r2, #0
+     5b4: e1a01002     	mov	r1, r2
+     5b8: ebfffffe     	bl	0x5b8 <hi_cfe_gro_dfx_dport_del+0xc> @ imm = #-0x8
+			000005b8:  R_ARM_CALL	simple_strtoul
+     5bc: e6ff0070     	uxth	r0, r0
+     5c0: e8bd4010     	pop	{r4, lr}
+     5c4: eafffffe     	b	0x5c4 <hi_cfe_gro_dfx_dport_del+0x18> @ imm = #-0x8
+			000005c4:  R_ARM_JUMP24	hi_cfe_lrn_gro_dport_del
+
+000005c8 <hi_cfe_gro_dfx_dport_add>:
+     5c8: e92d4010     	push	{r4, lr}
+     5cc: e3a02000     	mov	r2, #0
+     5d0: e1a01002     	mov	r1, r2
+     5d4: ebfffffe     	bl	0x5d4 <hi_cfe_gro_dfx_dport_add+0xc> @ imm = #-0x8
+			000005d4:  R_ARM_CALL	simple_strtoul
+     5d8: e6ff0070     	uxth	r0, r0
+     5dc: e8bd4010     	pop	{r4, lr}
+     5e0: eafffffe     	b	0x5e0 <hi_cfe_gro_dfx_dport_add+0x18> @ imm = #-0x8
+			000005e0:  R_ARM_JUMP24	hi_cfe_lrn_gro_dport_add
+
+000005e4 <hi_cfe_gro_dfx_acc_pkt_num_set>:
+     5e4: e92d4010     	push	{r4, lr}
+     5e8: e3a02000     	mov	r2, #0
+     5ec: e1a01002     	mov	r1, r2
+     5f0: ebfffffe     	bl	0x5f0 <hi_cfe_gro_dfx_acc_pkt_num_set+0xc> @ imm = #-0x8
+			000005f0:  R_ARM_CALL	simple_strtoul
+     5f4: e8bd4010     	pop	{r4, lr}
+     5f8: eafffffe     	b	0x5f8 <hi_cfe_gro_dfx_acc_pkt_num_set+0x14> @ imm = #-0x8
+			000005f8:  R_ARM_JUMP24	hi_cfe_lrn_gro_pkt_num_set
+
+000005fc <hi_cfe_gro_dfx_acc_pkt_num_get>:
+     5fc: e92d4010     	push	{r4, lr}
+     600: ebfffffe     	bl	0x600 <hi_cfe_gro_dfx_acc_pkt_num_get+0x4> @ imm = #-0x8
+			00000600:  R_ARM_CALL	hi_cfe_lrn_gro_pkt_num_get
+     604: e1a01000     	mov	r1, r0
+     608: e3000000     	movw	r0, #0x0
+			00000608:  R_ARM_MOVW_ABS_NC	.LC1
+     60c: e3400000     	movt	r0, #0x0
+			0000060c:  R_ARM_MOVT_ABS	.LC1
+     610: e8bd4010     	pop	{r4, lr}
+     614: eafffffe     	b	0x614 <hi_cfe_gro_dfx_acc_pkt_num_get+0x18> @ imm = #-0x8
+			00000614:  R_ARM_JUMP24	hi_dfx_print
+
+00000618 <hi_cfe_gro_dfx_acc_fail_clr>:
+     618: eafffffe     	b	0x618 <hi_cfe_gro_dfx_acc_fail_clr> @ imm = #-0x8
+			00000618:  R_ARM_JUMP24	hi_cfe_lrn_gro_clr_cnt
+
+0000061c <hi_cfe_gro_dfx_acc_fail_dump>:
+     61c: e92d4010     	push	{r4, lr}
+     620: ebfffffe     	bl	0x620 <hi_cfe_gro_dfx_acc_fail_dump+0x4> @ imm = #-0x8
+			00000620:  R_ARM_CALL	hi_cfe_lrn_gro_get_cnt
+     624: e1a04000     	mov	r4, r0
+     628: e3000000     	movw	r0, #0x0
+			00000628:  R_ARM_MOVW_ABS_NC	.LC2
+     62c: e3400000     	movt	r0, #0x0
+			0000062c:  R_ARM_MOVT_ABS	.LC2
+     630: e5941000     	ldr	r1, [r4]
+     634: ebfffffe     	bl	0x634 <hi_cfe_gro_dfx_acc_fail_dump+0x18> @ imm = #-0x8
+			00000634:  R_ARM_CALL	hi_dfx_print
+     638: e5941004     	ldr	r1, [r4, #0x4]
+     63c: e3000000     	movw	r0, #0x0
+			0000063c:  R_ARM_MOVW_ABS_NC	.LC3
+     640: e3400000     	movt	r0, #0x0
+			00000640:  R_ARM_MOVT_ABS	.LC3
+     644: ebfffffe     	bl	0x644 <hi_cfe_gro_dfx_acc_fail_dump+0x28> @ imm = #-0x8
+			00000644:  R_ARM_CALL	hi_dfx_print
+     648: e5941008     	ldr	r1, [r4, #0x8]
+     64c: e3000000     	movw	r0, #0x0
+			0000064c:  R_ARM_MOVW_ABS_NC	.LC4
+     650: e3400000     	movt	r0, #0x0
+			00000650:  R_ARM_MOVT_ABS	.LC4
+     654: ebfffffe     	bl	0x654 <hi_cfe_gro_dfx_acc_fail_dump+0x38> @ imm = #-0x8
+			00000654:  R_ARM_CALL	hi_dfx_print
+     658: e594100c     	ldr	r1, [r4, #0xc]
+     65c: e3000000     	movw	r0, #0x0
+			0000065c:  R_ARM_MOVW_ABS_NC	.LC5
+     660: e3400000     	movt	r0, #0x0
+			00000660:  R_ARM_MOVT_ABS	.LC5
+     664: ebfffffe     	bl	0x664 <hi_cfe_gro_dfx_acc_fail_dump+0x48> @ imm = #-0x8
+			00000664:  R_ARM_CALL	hi_dfx_print
+     668: e5941010     	ldr	r1, [r4, #0x10]
+     66c: e3000000     	movw	r0, #0x0
+			0000066c:  R_ARM_MOVW_ABS_NC	.LC6
+     670: e3400000     	movt	r0, #0x0
+			00000670:  R_ARM_MOVT_ABS	.LC6
+     674: ebfffffe     	bl	0x674 <hi_cfe_gro_dfx_acc_fail_dump+0x58> @ imm = #-0x8
+			00000674:  R_ARM_CALL	hi_dfx_print
+     678: e5941014     	ldr	r1, [r4, #0x14]
+     67c: e3000000     	movw	r0, #0x0
+			0000067c:  R_ARM_MOVW_ABS_NC	.LC7
+     680: e3400000     	movt	r0, #0x0
+			00000680:  R_ARM_MOVT_ABS	.LC7
+     684: e8bd4010     	pop	{r4, lr}
+     688: eafffffe     	b	0x688 <hi_cfe_gro_dfx_acc_fail_dump+0x6c> @ imm = #-0x8
+			00000688:  R_ARM_JUMP24	hi_dfx_print
+
+0000068c <hi_cfe_lrn_gro_dfx_init>:
+     68c: e92d41f0     	push	{r4, r5, r6, r7, r8, lr}
+     690: e3004000     	movw	r4, #0x0
+			00000690:  R_ARM_MOVW_ABS_NC	.LANCHOR0
+     694: e3404000     	movt	r4, #0x0
+			00000694:  R_ARM_MOVT_ABS	.LANCHOR0
+     698: e3006000     	movw	r6, #0x0
+			00000698:  R_ARM_MOVW_ABS_NC	.LC8
+     69c: e3406000     	movt	r6, #0x0
+			0000069c:  R_ARM_MOVT_ABS	.LC8
+     6a0: e3005000     	movw	r5, #0x0
+			000006a0:  R_ARM_MOVW_ABS_NC	.LC9
+     6a4: e3405000     	movt	r5, #0x0
+			000006a4:  R_ARM_MOVT_ABS	.LC9
+     6a8: e2847090     	add	r7, r4, #144
+     6ac: e5846000     	str	r6, [r4]
+     6b0: e1a00004     	mov	r0, r4
+     6b4: e5845004     	str	r5, [r4, #0x4]
+     6b8: e2844018     	add	r4, r4, #24
+     6bc: ebfffffe     	bl	0x6bc <hi_cfe_lrn_gro_dfx_init+0x30> @ imm = #-0x8
+			000006bc:  R_ARM_CALL	hi_dfx_register
+     6c0: e1540007     	cmp	r4, r7
+     6c4: 1afffff8     	bne	0x6ac <hi_cfe_lrn_gro_dfx_init+0x20> @ imm = #-0x20
+     6c8: e8bd81f0     	pop	{r4, r5, r6, r7, r8, pc}
+
+000006cc <hi_cfe_lrn_gro_dfx_uninit>:
+     6cc: e3001000     	movw	r1, #0x0
+			000006cc:  R_ARM_MOVW_ABS_NC	.LC9
+     6d0: e3401000     	movt	r1, #0x0
+			000006d0:  R_ARM_MOVT_ABS	.LC9
+     6d4: e3000000     	movw	r0, #0x0
+			000006d4:  R_ARM_MOVW_ABS_NC	.LC8
+     6d8: e3400000     	movt	r0, #0x0
+			000006d8:  R_ARM_MOVT_ABS	.LC8
+     6dc: eafffffe     	b	0x6dc <hi_cfe_lrn_gro_dfx_uninit+0x10> @ imm = #-0x8
+			000006dc:  R_ARM_JUMP24	hi_dfx_unregister
+
+Disassembly of section .init.text:
+
+00000000 <init_module>:
+       0: e92d4010     	push	{r4, lr}
+       4: e3004000     	movw	r4, #0x0
+			00000004:  R_ARM_MOVW_ABS_NC	.LANCHOR0
+       8: e3404000     	movt	r4, #0x0
+			00000008:  R_ARM_MOVT_ABS	.LANCHOR0
+       c: e3002000     	movw	r2, #0x0
+			0000000c:  R_ARM_MOVW_ABS_NC	.LC11
+      10: e3402000     	movt	r2, #0x0
+			00000010:  R_ARM_MOVT_ABS	.LC11
+      14: e3001000     	movw	r1, #0x0
+			00000014:  R_ARM_MOVW_ABS_NC	.LC12
+      18: e3401000     	movt	r1, #0x0
+			00000018:  R_ARM_MOVT_ABS	.LC12
+      1c: e3000000     	movw	r0, #0x0
+			0000001c:  R_ARM_MOVW_ABS_NC	.LC13
+      20: e3400000     	movt	r0, #0x0
+			00000020:  R_ARM_MOVT_ABS	.LC13
+      24: ebfffffe     	bl	0x24 <init_module+0x24> @ imm = #-0x8
+			00000024:  R_ARM_CALL	printk
+      28: e30001bd     	movw	r0, #0x1bd
+      2c: e284301c     	add	r3, r4, #28
+      30: e584301c     	str	r3, [r4, #0x1c]
+      34: e5843020     	str	r3, [r4, #0x20]
+      38: ebfffffe     	bl	0x38 <init_module+0x38> @ imm = #-0x8
+			00000038:  R_ARM_CALL	hi_cfe_lrn_gro_dport_add
+      3c: e3000000     	movw	r0, #0x0
+			0000003c:  R_ARM_MOVW_ABS_NC	.LANCHOR1
+      40: e3400000     	movt	r0, #0x0
+			00000040:  R_ARM_MOVT_ABS	.LANCHOR1
+      44: ebfffffe     	bl	0x44 <init_module+0x44> @ imm = #-0x8
+			00000044:  R_ARM_CALL	hi_cfe_lrn_lib_reg
+      48: ebfffffe     	bl	0x48 <init_module+0x48> @ imm = #-0x8
+			00000048:  R_ARM_CALL	hi_cfe_lrn_gro_dfx_init
+      4c: e3000000     	movw	r0, #0x0
+			0000004c:  R_ARM_MOVW_ABS_NC	.LC14
+      50: e3400000     	movt	r0, #0x0
+			00000050:  R_ARM_MOVT_ABS	.LC14
+      54: e3a03005     	mov	r3, #5
+      58: e5843000     	str	r3, [r4]
+      5c: ebfffffe     	bl	0x5c <init_module+0x5c> @ imm = #-0x8
+			0000005c:  R_ARM_CALL	printk
+      60: e3a00000     	mov	r0, #0
+      64: e8bd8010     	pop	{r4, pc}
+
+Disassembly of section .exit.text:
+
+00000000 <cleanup_module>:
+       0: e92d4010     	push	{r4, lr}
+       4: e3000000     	movw	r0, #0x0
+			00000004:  R_ARM_MOVW_ABS_NC	.LANCHOR1
+       8: e3400000     	movt	r0, #0x0
+			00000008:  R_ARM_MOVT_ABS	.LANCHOR1
+       c: ebfffffe     	bl	0xc <cleanup_module+0xc> @ imm = #-0x8
+			0000000c:  R_ARM_CALL	hi_cfe_lrn_lib_unreg
+      10: ebfffffe     	bl	0x10 <cleanup_module+0x10> @ imm = #-0x8
+			00000010:  R_ARM_CALL	hi_cfe_lrn_gro_dfx_uninit
+      14: e3000000     	movw	r0, #0x0
+			00000014:  R_ARM_MOVW_ABS_NC	.LC15
+      18: e3400000     	movt	r0, #0x0
+			00000018:  R_ARM_MOVT_ABS	.LC15
+      1c: e8bd4010     	pop	{r4, lr}
+      20: eafffffe     	b	0x20 <cleanup_module+0x20> @ imm = #-0x8
+			00000020:  R_ARM_JUMP24	printk
+
+Disassembly of section .plt:
+
+00000024 <.plt>:
+      24: 00           	<unknown>

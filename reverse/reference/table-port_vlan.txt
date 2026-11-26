@@ -1,0 +1,7 @@
+*** [port_vlan]:type=279,key=4B,data=4B,total=4095,alloc=5,peak=5 ***
+*** [port_vlan]:sub_nr=0,sub_len=0,need_alloc=y,limit=0,start_id=0 ***
+id=1,ref=1,port=11,vlan=0
+id=2,ref=1,port=8,vlan=0
+id=3,ref=1,port=9,vlan=0
+id=4,ref=1,port=10,vlan=0
+id=5,ref=1,port=0,vlan=0

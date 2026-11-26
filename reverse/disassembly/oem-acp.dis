@@ -1,0 +1,416 @@
+
+work/oem-boot-modules/hi_acp.ko:	file format elf32-littlearm
+
+Disassembly of section .text:
+
+00000000 <hi_acp_notifier_call_chain>:
+       0: e1a03000     	mov	r3, r0
+       4: e1a02001     	mov	r2, r1
+       8: e3000000     	movw	r0, #0x0
+			00000008:  R_ARM_MOVW_ABS_NC	.LANCHOR0
+       c: e3400000     	movt	r0, #0x0
+			0000000c:  R_ARM_MOVT_ABS	.LANCHOR0
+      10: e1a01003     	mov	r1, r3
+      14: eafffffe     	b	0x14 <hi_acp_notifier_call_chain+0x14> @ imm = #-0x8
+			00000014:  R_ARM_JUMP24	blocking_notifier_call_chain
+
+00000018 <hi_acp_notifier_call>:
+      18: e351000a     	cmp	r1, #10
+      1c: 8a00001f     	bhi	0xa0 <hi_acp_notifier_call+0x88> @ imm = #0x7c
+      20: e92d47f0     	push	{r4, r5, r6, r7, r8, r9, r10, lr}
+      24: e3007000     	movw	r7, #0x0
+			00000024:  R_ARM_MOVW_ABS_NC	.LANCHOR1
+      28: e3407000     	movt	r7, #0x0
+			00000028:  R_ARM_MOVT_ABS	.LANCHOR1
+      2c: e1a06001     	mov	r6, r1
+      30: e7972101     	ldr	r2, [r7, r1, lsl #2]
+      34: e5923008     	ldr	r3, [r2, #0x8]
+      38: e3530000     	cmp	r3, #0
+      3c: 0a000019     	beq	0xa8 <hi_acp_notifier_call+0x90> @ imm = #0x64
+      40: e3a05000     	mov	r5, #0
+      44: e3a0800c     	mov	r8, #12
+      48: ea00000a     	b	0x78 <hi_acp_notifier_call+0x60> @ imm = #0x28
+      4c: e7973106     	ldr	r3, [r7, r6, lsl #2]
+      50: e5933014     	ldr	r3, [r3, #0x14]
+      54: e0833009     	add	r3, r3, r9
+      58: e9930006     	ldmib	r3, {r1, r2}
+      5c: ebfffffe     	bl	0x5c <hi_acp_notifier_call+0x44> @ imm = #-0x8
+			0000005c:  R_ARM_CALL	hi_acp_hw_set_cache_attr
+      60: e1a00004     	mov	r0, r4
+      64: ebfffffe     	bl	0x64 <hi_acp_notifier_call+0x4c> @ imm = #-0x8
+			00000064:  R_ARM_CALL	iounmap
+      68: e7972106     	ldr	r2, [r7, r6, lsl #2]
+      6c: e5923008     	ldr	r3, [r2, #0x8]
+      70: e1550003     	cmp	r5, r3
+      74: 2a00000b     	bhs	0xa8 <hi_acp_notifier_call+0x90> @ imm = #0x2c
+      78: e0090598     	mul	r9, r8, r5
+      7c: e5923014     	ldr	r3, [r2, #0x14]
+      80: e3a01a01     	mov	r1, #4096
+      84: e2855001     	add	r5, r5, #1
+      88: e7930009     	ldr	r0, [r3, r9]
+      8c: ebfffffe     	bl	0x8c <hi_acp_notifier_call+0x74> @ imm = #-0x8
+			0000008c:  R_ARM_CALL	ioremap
+      90: e2504000     	subs	r4, r0, #0
+      94: 1affffec     	bne	0x4c <hi_acp_notifier_call+0x34> @ imm = #-0x50
+      98: e3080002     	movw	r0, #0x8002
+      9c: e8bd87f0     	pop	{r4, r5, r6, r7, r8, r9, r10, pc}
+      a0: e3080002     	movw	r0, #0x8002
+      a4: e12fff1e     	bx	lr
+      a8: e3003000     	movw	r3, #0x0
+			000000a8:  R_ARM_MOVW_ABS_NC	.LANCHOR2
+      ac: e3403000     	movt	r3, #0x0
+			000000ac:  R_ARM_MOVT_ABS	.LANCHOR2
+      b0: e3000000     	movw	r0, #0x0
+			000000b0:  R_ARM_MOVW_ABS_NC	.LC0
+      b4: e3400000     	movt	r0, #0x0
+			000000b4:  R_ARM_MOVT_ABS	.LC0
+      b8: e7931106     	ldr	r1, [r3, r6, lsl #2]
+      bc: ebfffffe     	bl	0xbc <hi_acp_notifier_call+0xa4> @ imm = #-0x8
+			000000bc:  R_ARM_CALL	printk
+      c0: e3a00000     	mov	r0, #0
+      c4: e8bd87f0     	pop	{r4, r5, r6, r7, r8, r9, r10, pc}
+
+000000c8 <hi_acp_config>:
+      c8: e92d41f0     	push	{r4, r5, r6, r7, r8, lr}
+      cc: e1a05001     	mov	r5, r1
+      d0: e1a08002     	mov	r8, r2
+      d4: e5913004     	ldr	r3, [r1, #0x4]
+      d8: e3530000     	cmp	r3, #0
+      dc: 13a06000     	movne	r6, #0
+      e0: 11a07006     	movne	r7, r6
+      e4: 1a00000b     	bne	0x118 <hi_acp_config+0x50> @ imm = #0x2c
+      e8: ea000013     	b	0x13c <hi_acp_config+0x74> @ imm = #0x4c
+      ec: e5953010     	ldr	r3, [r5, #0x10]
+      f0: e0833006     	add	r3, r3, r6
+      f4: e286600c     	add	r6, r6, #12
+      f8: e5932008     	ldr	r2, [r3, #0x8]
+      fc: e5931004     	ldr	r1, [r3, #0x4]
+     100: ebfffffe     	bl	0x100 <hi_acp_config+0x38> @ imm = #-0x8
+			00000100:  R_ARM_CALL	hi_acp_hw_set_cache_attr
+     104: e1a00004     	mov	r0, r4
+     108: ebfffffe     	bl	0x108 <hi_acp_config+0x40> @ imm = #-0x8
+			00000108:  R_ARM_CALL	iounmap
+     10c: e5953004     	ldr	r3, [r5, #0x4]
+     110: e1530007     	cmp	r3, r7
+     114: 9a000008     	bls	0x13c <hi_acp_config+0x74> @ imm = #0x20
+     118: e5953010     	ldr	r3, [r5, #0x10]
+     11c: e3a01a01     	mov	r1, #4096
+     120: e2877001     	add	r7, r7, #1
+     124: e7930006     	ldr	r0, [r3, r6]
+     128: ebfffffe     	bl	0x128 <hi_acp_config+0x60> @ imm = #-0x8
+			00000128:  R_ARM_CALL	ioremap
+     12c: e2504000     	subs	r4, r0, #0
+     130: 1affffed     	bne	0xec <hi_acp_config+0x24> @ imm = #-0x4c
+     134: e3e0000b     	mvn	r0, #11
+     138: e8bd81f0     	pop	{r4, r5, r6, r7, r8, pc}
+     13c: e5953000     	ldr	r3, [r5]
+     140: e3530000     	cmp	r3, #0
+     144: 13a06000     	movne	r6, #0
+     148: 11a07006     	movne	r7, r6
+     14c: 1a00000f     	bne	0x190 <hi_acp_config+0xc8> @ imm = #0x3c
+     150: e3a00000     	mov	r0, #0
+     154: e8bd81f0     	pop	{r4, r5, r6, r7, r8, pc}
+     158: e595300c     	ldr	r3, [r5, #0xc]
+     15c: e3580000     	cmp	r8, #0
+     160: e1a00004     	mov	r0, r4
+     164: e0833006     	add	r3, r3, r6
+     168: e286600c     	add	r6, r6, #12
+     16c: e5932008     	ldr	r2, [r3, #0x8]
+     170: e5931004     	ldr	r1, [r3, #0x4]
+     174: 01e02002     	mvneq	r2, r2
+     178: ebfffffe     	bl	0x178 <hi_acp_config+0xb0> @ imm = #-0x8
+			00000178:  R_ARM_CALL	hi_acp_hw_set_cache_attr
+     17c: e1a00004     	mov	r0, r4
+     180: ebfffffe     	bl	0x180 <hi_acp_config+0xb8> @ imm = #-0x8
+			00000180:  R_ARM_CALL	iounmap
+     184: e5953000     	ldr	r3, [r5]
+     188: e1530007     	cmp	r3, r7
+     18c: 9affffef     	bls	0x150 <hi_acp_config+0x88> @ imm = #-0x44
+     190: e595300c     	ldr	r3, [r5, #0xc]
+     194: e3a01a01     	mov	r1, #4096
+     198: e2877001     	add	r7, r7, #1
+     19c: e7930006     	ldr	r0, [r3, r6]
+     1a0: ebfffffe     	bl	0x1a0 <hi_acp_config+0xd8> @ imm = #-0x8
+			000001a0:  R_ARM_CALL	ioremap
+     1a4: e2504000     	subs	r4, r0, #0
+     1a8: 1affffea     	bne	0x158 <hi_acp_config+0x90> @ imm = #-0x58
+     1ac: e3e0000b     	mvn	r0, #11
+     1b0: e8bd81f0     	pop	{r4, r5, r6, r7, r8, pc}
+
+000001b4 <hi_acp_hw_set_cache_attr>:
+     1b4: e5903000     	ldr	r3, [r0]
+     1b8: e0222003     	eor	r2, r2, r3
+     1bc: e0022001     	and	r2, r2, r1
+     1c0: e0222003     	eor	r2, r2, r3
+     1c4: e5802000     	str	r2, [r0]
+     1c8: f57ff06f     	isb	sy
+     1cc: e12fff1e     	bx	lr
+
+Disassembly of section .text.unlikely:
+
+00000000 <kzalloc.constprop.0>:
+       0: e3a01d37     	mov	r1, #3520
+       4: eafffffe     	b	0x4 <kzalloc.constprop.0+0x4> @ imm = #-0x8
+			00000004:  R_ARM_JUMP24	__kmalloc
+
+Disassembly of section .init.text:
+
+00000000 <init_module>:
+       0: e92d4ff0     	push	{r4, r5, r6, r7, r8, r9, r10, r11, lr}
+       4: e3009000     	movw	r9, #0x0
+			00000004:  R_ARM_MOVW_ABS_NC	.LANCHOR2
+       8: e3409000     	movt	r9, #0x0
+			00000008:  R_ARM_MOVT_ABS	.LANCHOR2
+       c: e3057556     	movw	r7, #0x5556
+      10: e3457555     	movt	r7, #0x5555
+      14: e30abaab     	movw	r11, #0xaaab
+      18: e34abaaa     	movt	r11, #0xaaaa
+      1c: e24dd014     	sub	sp, sp, #20
+      20: e3a08000     	mov	r8, #0
+      24: e4992004     	ldr	r2, [r9], #4
+      28: e3520000     	cmp	r2, #0
+      2c: 0a00009a     	beq	0x29c <init_module+0x29c> @ imm = #0x268
+      30: e3a01000     	mov	r1, #0
+      34: e1a00001     	mov	r0, r1
+      38: ebfffffe     	bl	0x38 <init_module+0x38> @ imm = #-0x8
+			00000038:  R_ARM_CALL	of_find_compatible_node
+      3c: e2504000     	subs	r4, r0, #0
+      40: 1a000001     	bne	0x4c <init_module+0x4c> @ imm = #0x4
+      44: e2888001     	add	r8, r8, #1
+      48: eafffff5     	b	0x24 <init_module+0x24> @ imm = #-0x2c
+      4c: ebfffffe     	bl	0x4c <init_module+0x4c> @ imm = #-0x8
+			0000004c:  R_ARM_CALL	of_device_is_available
+      50: e3500000     	cmp	r0, #0
+      54: 0afffffa     	beq	0x44 <init_module+0x44> @ imm = #-0x18
+      58: e1a00004     	mov	r0, r4
+      5c: ebfffffe     	bl	0x5c <init_module+0x5c> @ imm = #-0x8
+			0000005c:  R_ARM_CALL	of_find_device_by_node
+      60: e2504000     	subs	r4, r0, #0
+      64: 1a000003     	bne	0x78 <init_module+0x78> @ imm = #0xc
+      68: e3004000     	movw	r4, #0x0
+			00000068:  R_ARM_MOVW_ABS_NC	.LANCHOR1
+      6c: e3404000     	movt	r4, #0x0
+			0000006c:  R_ARM_MOVT_ABS	.LANCHOR1
+      70: e3a05000     	mov	r5, #0
+      74: ea00008e     	b	0x2b4 <init_module+0x2b4> @ imm = #0x238
+      78: e5945000     	ldr	r5, [r4]
+      7c: e59401b0     	ldr	r0, [r4, #0x1b0]
+      80: ebfffffe     	bl	0x80 <init_module+0x80> @ imm = #-0x8
+			00000080:  R_ARM_CALL	of_dma_is_coherent
+      84: e3003000     	movw	r3, #0x0
+			00000084:  R_ARM_MOVW_ABS_NC	.LC2
+      88: e3403000     	movt	r3, #0x0
+			00000088:  R_ARM_MOVT_ABS	.LC2
+      8c: e3500000     	cmp	r0, #0
+      90: e1a01005     	mov	r1, r5
+      94: e3002000     	movw	r2, #0x0
+			00000094:  R_ARM_MOVW_ABS_NC	.LC1
+      98: e3402000     	movt	r2, #0x0
+			00000098:  R_ARM_MOVT_ABS	.LC1
+      9c: e3000000     	movw	r0, #0x0
+			0000009c:  R_ARM_MOVW_ABS_NC	.LC3
+      a0: e3400000     	movt	r0, #0x0
+			000000a0:  R_ARM_MOVT_ABS	.LC3
+      a4: 01a02003     	moveq	r2, r3
+      a8: ebfffffe     	bl	0xa8 <init_module+0xa8> @ imm = #-0x8
+			000000a8:  R_ARM_CALL	printk
+      ac: e59401b0     	ldr	r0, [r4, #0x1b0]
+      b0: ebfffffe     	bl	0xb0 <init_module+0xb0> @ imm = #-0x8
+			000000b0:  R_ARM_CALL	of_dma_is_coherent
+      b4: e1a0a000     	mov	r10, r0
+      b8: e3a00018     	mov	r0, #24
+      bc: ebfffffe     	bl	0xbc <init_module+0xbc> @ imm = #-0x8
+			000000bc:  R_ARM_CALL	kzalloc.constprop.0
+      c0: e2505000     	subs	r5, r0, #0
+      c4: 03e0500b     	mvneq	r5, #11
+      c8: 0a00006e     	beq	0x288 <init_module+0x288> @ imm = #0x1b8
+      cc: e3003000     	movw	r3, #0x0
+			000000cc:  R_ARM_MOVW_ABS_NC	.LANCHOR1
+      d0: e3403000     	movt	r3, #0x0
+			000000d0:  R_ARM_MOVT_ABS	.LANCHOR1
+      d4: e59401b0     	ldr	r0, [r4, #0x1b0]
+      d8: e3a02004     	mov	r2, #4
+      dc: e3001000     	movw	r1, #0x0
+			000000dc:  R_ARM_MOVW_ABS_NC	.LC4
+      e0: e3401000     	movt	r1, #0x0
+			000000e0:  R_ARM_MOVT_ABS	.LC4
+      e4: e7835108     	str	r5, [r3, r8, lsl #2]
+      e8: ebfffffe     	bl	0xe8 <init_module+0xe8> @ imm = #-0x8
+			000000e8:  R_ARM_CALL	of_property_count_elems_of_size
+      ec: e2506000     	subs	r6, r0, #0
+      f0: ca000001     	bgt	0xfc <init_module+0xfc> @ imm = #0x4
+      f4: e3e05015     	mvn	r5, #21
+      f8: ea000062     	b	0x288 <init_module+0x288> @ imm = #0x188
+      fc: e3a01003     	mov	r1, #3
+     100: ebfffffe     	bl	0x100 <init_module+0x100> @ imm = #-0x8
+			00000100:  R_ARM_CALL	__aeabi_idivmod
+     104: e2513000     	subs	r3, r1, #0
+     108: e58d3008     	str	r3, [sp, #0x8]
+     10c: 1afffff8     	bne	0xf4 <init_module+0xf4> @ imm = #-0x20
+     110: e1a00106     	lsl	r0, r6, #2
+     114: ebfffffe     	bl	0x114 <init_module+0x114> @ imm = #-0x8
+			00000114:  R_ARM_CALL	kzalloc.constprop.0
+     118: e1a02000     	mov	r2, r0
+     11c: e3500000     	cmp	r0, #0
+     120: e585000c     	str	r0, [r5, #0xc]
+     124: 0afffff2     	beq	0xf4 <init_module+0xf4> @ imm = #-0x38
+     128: e0c10796     	smull	r0, r1, r6, r7
+     12c: e59d3008     	ldr	r3, [sp, #0x8]
+     130: e0411fc6     	sub	r1, r1, r6, asr #31
+     134: e5851000     	str	r1, [r5]
+     138: e58d3000     	str	r3, [sp]
+     13c: e3001000     	movw	r1, #0x0
+			0000013c:  R_ARM_MOVW_ABS_NC	.LC4
+     140: e3401000     	movt	r1, #0x0
+			00000140:  R_ARM_MOVT_ABS	.LC4
+     144: e1a03006     	mov	r3, r6
+     148: e59401b0     	ldr	r0, [r4, #0x1b0]
+     14c: ebfffffe     	bl	0x14c <init_module+0x14c> @ imm = #-0x8
+			0000014c:  R_ARM_CALL	of_property_read_variable_u32_array
+     150: e3500000     	cmp	r0, #0
+     154: baffffe6     	blt	0xf4 <init_module+0xf4> @ imm = #-0x68
+     158: e35a0000     	cmp	r10, #0
+     15c: 1a000005     	bne	0x178 <init_module+0x178> @ imm = #0x14
+     160: e1a01005     	mov	r1, r5
+     164: e1a0200a     	mov	r2, r10
+     168: e1a00008     	mov	r0, r8
+     16c: ebfffffe     	bl	0x16c <init_module+0x16c> @ imm = #-0x8
+			0000016c:  R_ARM_CALL	hi_acp_config
+     170: e1a05000     	mov	r5, r0
+     174: ea000043     	b	0x288 <init_module+0x288> @ imm = #0x10c
+     178: e59401b0     	ldr	r0, [r4, #0x1b0]
+     17c: e3a02004     	mov	r2, #4
+     180: e3001000     	movw	r1, #0x0
+			00000180:  R_ARM_MOVW_ABS_NC	.LC5
+     184: e3401000     	movt	r1, #0x0
+			00000184:  R_ARM_MOVT_ABS	.LC5
+     188: ebfffffe     	bl	0x188 <init_module+0x188> @ imm = #-0x8
+			00000188:  R_ARM_CALL	of_property_count_elems_of_size
+     18c: e2503000     	subs	r3, r0, #0
+     190: ca000007     	bgt	0x1b4 <init_module+0x1b4> @ imm = #0x1c
+     194: e59401b0     	ldr	r0, [r4, #0x1b0]
+     198: e3a02004     	mov	r2, #4
+     19c: e3001000     	movw	r1, #0x0
+			0000019c:  R_ARM_MOVW_ABS_NC	.LC6
+     1a0: e3401000     	movt	r1, #0x0
+			000001a0:  R_ARM_MOVT_ABS	.LC6
+     1a4: ebfffffe     	bl	0x1a4 <init_module+0x1a4> @ imm = #-0x8
+			000001a4:  R_ARM_CALL	of_property_count_elems_of_size
+     1a8: e2506000     	subs	r6, r0, #0
+     1ac: ca00001b     	bgt	0x220 <init_module+0x220> @ imm = #0x6c
+     1b0: eaffffea     	b	0x160 <init_module+0x160> @ imm = #-0x58
+     1b4: e30a2aaa     	movw	r2, #0xaaaa
+     1b8: e3422aaa     	movt	r2, #0x2aaa
+     1bc: e3051555     	movw	r1, #0x5555
+     1c0: e3451555     	movt	r1, #0x5555
+     1c4: e022239b     	mla	r2, r11, r3, r2
+     1c8: e1520001     	cmp	r2, r1
+     1cc: 2afffff0     	bhs	0x194 <init_module+0x194> @ imm = #-0x40
+     1d0: e1a00103     	lsl	r0, r3, #2
+     1d4: e58d300c     	str	r3, [sp, #0xc]
+     1d8: ebfffffe     	bl	0x1d8 <init_module+0x1d8> @ imm = #-0x8
+			000001d8:  R_ARM_CALL	kzalloc.constprop.0
+     1dc: e59d300c     	ldr	r3, [sp, #0xc]
+     1e0: e1a02000     	mov	r2, r0
+     1e4: e3500000     	cmp	r0, #0
+     1e8: e5850010     	str	r0, [r5, #0x10]
+     1ec: 0affffc0     	beq	0xf4 <init_module+0xf4> @ imm = #-0x100
+     1f0: e0c10793     	smull	r0, r1, r3, r7
+     1f4: e0411fc3     	sub	r1, r1, r3, asr #31
+     1f8: e5851004     	str	r1, [r5, #0x4]
+     1fc: e59d1008     	ldr	r1, [sp, #0x8]
+     200: e58d1000     	str	r1, [sp]
+     204: e3001000     	movw	r1, #0x0
+			00000204:  R_ARM_MOVW_ABS_NC	.LC5
+     208: e3401000     	movt	r1, #0x0
+			00000208:  R_ARM_MOVT_ABS	.LC5
+     20c: e59401b0     	ldr	r0, [r4, #0x1b0]
+     210: ebfffffe     	bl	0x210 <init_module+0x210> @ imm = #-0x8
+			00000210:  R_ARM_CALL	of_property_read_variable_u32_array
+     214: e3500000     	cmp	r0, #0
+     218: aaffffdd     	bge	0x194 <init_module+0x194> @ imm = #-0x8c
+     21c: eaffffb4     	b	0xf4 <init_module+0xf4> @ imm = #-0x130
+     220: e30a3aaa     	movw	r3, #0xaaaa
+     224: e3423aaa     	movt	r3, #0x2aaa
+     228: e3052555     	movw	r2, #0x5555
+     22c: e3452555     	movt	r2, #0x5555
+     230: e023369b     	mla	r3, r11, r6, r3
+     234: e1530002     	cmp	r3, r2
+     238: 2affffc8     	bhs	0x160 <init_module+0x160> @ imm = #-0xe0
+     23c: e1a00106     	lsl	r0, r6, #2
+     240: ebfffffe     	bl	0x240 <init_module+0x240> @ imm = #-0x8
+			00000240:  R_ARM_CALL	kzalloc.constprop.0
+     244: e1a02000     	mov	r2, r0
+     248: e3500000     	cmp	r0, #0
+     24c: e5850014     	str	r0, [r5, #0x14]
+     250: 0affffa7     	beq	0xf4 <init_module+0xf4> @ imm = #-0x164
+     254: e0c31796     	smull	r1, r3, r6, r7
+     258: e3a01000     	mov	r1, #0
+     25c: e0433fc6     	sub	r3, r3, r6, asr #31
+     260: e5853008     	str	r3, [r5, #0x8]
+     264: e58d1000     	str	r1, [sp]
+     268: e1a03006     	mov	r3, r6
+     26c: e3001000     	movw	r1, #0x0
+			0000026c:  R_ARM_MOVW_ABS_NC	.LC6
+     270: e3401000     	movt	r1, #0x0
+			00000270:  R_ARM_MOVT_ABS	.LC6
+     274: e59401b0     	ldr	r0, [r4, #0x1b0]
+     278: ebfffffe     	bl	0x278 <init_module+0x278> @ imm = #-0x8
+			00000278:  R_ARM_CALL	of_property_read_variable_u32_array
+     27c: e3500000     	cmp	r0, #0
+     280: baffff9b     	blt	0xf4 <init_module+0xf4> @ imm = #-0x194
+     284: eaffffb5     	b	0x160 <init_module+0x160> @ imm = #-0x12c
+     288: e2840010     	add	r0, r4, #16
+     28c: ebfffffe     	bl	0x28c <init_module+0x28c> @ imm = #-0x8
+			0000028c:  R_ARM_CALL	put_device
+     290: e3550000     	cmp	r5, #0
+     294: 1affff73     	bne	0x68 <init_module+0x68> @ imm = #-0x234
+     298: eaffff69     	b	0x44 <init_module+0x44> @ imm = #-0x25c
+     29c: e59f1074     	ldr	r1, [pc, #0x74]         @ 0x318 <init_module+0x318>
+     2a0: e241001c     	sub	r0, r1, #28
+     2a4: ebfffffe     	bl	0x2a4 <init_module+0x2a4> @ imm = #-0x8
+			000002a4:  R_ARM_CALL	blocking_notifier_chain_register
+     2a8: e3500000     	cmp	r0, #0
+     2ac: 0a000017     	beq	0x310 <init_module+0x310> @ imm = #0x5c
+     2b0: eaffff6c     	b	0x68 <init_module+0x68> @ imm = #-0x250
+     2b4: e4943004     	ldr	r3, [r4], #4
+     2b8: e2855001     	add	r5, r5, #1
+     2bc: e3530000     	cmp	r3, #0
+     2c0: 0a00000f     	beq	0x304 <init_module+0x304> @ imm = #0x3c
+     2c4: e593000c     	ldr	r0, [r3, #0xc]
+     2c8: e3500000     	cmp	r0, #0
+     2cc: 0a000000     	beq	0x2d4 <init_module+0x2d4> @ imm = #0x0
+     2d0: ebfffffe     	bl	0x2d0 <init_module+0x2d0> @ imm = #-0x8
+			000002d0:  R_ARM_CALL	kfree
+     2d4: e5143004     	ldr	r3, [r4, #-0x4]
+     2d8: e5930010     	ldr	r0, [r3, #0x10]
+     2dc: e3500000     	cmp	r0, #0
+     2e0: 0a000000     	beq	0x2e8 <init_module+0x2e8> @ imm = #0x0
+     2e4: ebfffffe     	bl	0x2e4 <init_module+0x2e4> @ imm = #-0x8
+			000002e4:  R_ARM_CALL	kfree
+     2e8: e5143004     	ldr	r3, [r4, #-0x4]
+     2ec: e5930014     	ldr	r0, [r3, #0x14]
+     2f0: e3500000     	cmp	r0, #0
+     2f4: 0a000000     	beq	0x2fc <init_module+0x2fc> @ imm = #0x0
+     2f8: ebfffffe     	bl	0x2f8 <init_module+0x2f8> @ imm = #-0x8
+			000002f8:  R_ARM_CALL	kfree
+     2fc: e5140004     	ldr	r0, [r4, #-0x4]
+     300: ebfffffe     	bl	0x300 <init_module+0x300> @ imm = #-0x8
+			00000300:  R_ARM_CALL	kfree
+     304: e355000b     	cmp	r5, #11
+     308: 1affffe9     	bne	0x2b4 <init_module+0x2b4> @ imm = #-0x5c
+     30c: e3e00015     	mvn	r0, #21
+     310: e28dd014     	add	sp, sp, #20
+     314: e8bd8ff0     	pop	{r4, r5, r6, r7, r8, r9, r10, r11, pc}
+     318: 1c 00 00 00  	.word	0x0000001c
+			00000318:  R_ARM_ABS32	.data
+
+Disassembly of section .exit.text:
+
+00000000 <cleanup_module>:
+       0: e12fff1e     	bx	lr
+
+Disassembly of section .plt:
+
+0000000c <.plt>:
+       c: 00           	<unknown>

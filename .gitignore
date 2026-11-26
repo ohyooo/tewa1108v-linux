@@ -1,0 +1,11 @@
+/out/
+/.venv/
+__pycache__/
+*.pyc
+/drivers/lan1/*.o
+/drivers/lan1/*.ko
+/drivers/lan1/*.mod
+/drivers/lan1/*.mod.c
+/drivers/lan1/.*.cmd
+/drivers/lan1/Module.symvers
+/drivers/lan1/modules.order

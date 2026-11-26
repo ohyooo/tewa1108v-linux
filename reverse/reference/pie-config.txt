@@ -1,0 +1,5 @@
+[pon] port=0,vport=0,netdev_en=1,send_type=spec
+[eth1] port=8,vport=0,netdev_en=1,send_type=spec
+[eth2] port=9,vport=0,netdev_en=1,send_type=spec
+[eth3] port=10,vport=0,netdev_en=1,send_type=spec
+[eth0] port=11,vport=0,netdev_en=1,send_type=spec

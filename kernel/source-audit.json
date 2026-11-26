@@ -1,0 +1,13 @@
+{
+  "input_archive_sha256": "8f293f83d54f0b7b9be56863ebc5e4ea79d73e530b4ae55c572be97ef39f0990",
+  "compared_files": 96081,
+  "runtime_source_changes": [],
+  "only_difference": {
+    "path": "tools/testing/selftests/powerpc/primitives/asm/asm-compat.h",
+    "upstream_symlink": "../.././../../../../arch/powerpc/include/asm/asm-compat.h",
+    "build_host_symlink": "../.././../../../../arch/powerpc/include/asm/asm-compat.h",
+    "same_normalized_target": true
+  },
+  "published_source": "Pinned upstream archive, original symlink spelling preserved",
+  "adaptation": "External drivers, runtime device tree construction, and pinned kernel config"
+}

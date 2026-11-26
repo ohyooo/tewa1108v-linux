@@ -1,0 +1,9 @@
+make: Entering directory '/home/u/tewa1108v-work/linux-7.3.5'
+make[1]: Entering directory '/home/u/tewa1108v-work/LAN1'
+  CC [M]  hsan-lsw-pfe.o
+  MODPOST Module.symvers
+  LD [M]  hsan-lsw-pfe.ko
+make[1]: Leaving directory '/home/u/tewa1108v-work/LAN1'
+make: Leaving directory '/home/u/tewa1108v-work/linux-7.3.5'
+CRG_ARTIFACTS_COMPLETE
+INCREMENTAL_BUILD_COMPLETE

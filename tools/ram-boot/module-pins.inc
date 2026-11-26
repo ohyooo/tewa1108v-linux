@@ -1,0 +1,8 @@
+{"hsan-lsw-crg","/tewa/modules/hsan-lsw-crg.ko",13520u,""},
+{"hsan-mdio","/tewa/modules/hsan-mdio.ko",14016u,""},
+{"hsan-lsw-csr","/tewa/modules/hsan-lsw-csr.ko",75000u,"experimental_allow_lsw_writes=1"},
+{"hsan-lsw-platform","/tewa/modules/hsan-lsw-platform.ko",6688u,""},
+{"hsan-lsw-dp","/tewa/modules/hsan-lsw-dp.ko",51360u,""},
+{"hsan-lsw-pfe","/tewa/modules/hsan-lsw-pfe.ko",61248u,""},
+{"hsan-gemac-lan1","/tewa/modules/hsan-gemac-lan1.ko",22328u,""},
+{"hsan-net-v300","/tewa/modules/hsan-net-v300.ko",94368u,""},

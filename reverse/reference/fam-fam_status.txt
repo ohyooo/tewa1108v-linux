@@ -1,0 +1,3 @@
+*** dump fam status ***
+sm_cell         : size=512 num=22/8192
+nm_cell         : size=2048 num=48/16384
