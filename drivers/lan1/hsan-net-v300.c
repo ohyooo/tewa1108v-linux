@@ -13,6 +13,8 @@
  */
 #include <linux/bitops.h>
 #include <linux/delay.h>
+#include <linux/fs.h>
+#include <linux/sysfs.h>
 #include <linux/dma-mapping.h>
 #include <linux/dma-map-ops.h>
 #include <linux/etherdevice.h>
@@ -106,6 +108,16 @@ struct hsan_v300_rx {
 	void *buffer;
 	dma_addr_t dma;
 };
+#define HSAN_GRO_CAPTURE_BYTES 15360U
+struct hsan_gro_capture_record {
+    __le32 ready, channel, frame_bytes, source_port, subport, vendor_aux;
+    u8 descriptor[HSAN_DESC_BYTES];
+    u8 payload[HSAN_GRO_CAPTURE_BYTES];
+};
+struct hsan_gro_capture_file {
+    struct bin_attribute attribute;
+    struct kobject *kobject;
+};
 struct hsan_v300;
 enum hsan_rx_wptr_cmp_state {
     HSAN_RX_WPTR_UNSAMPLED,
@@ -161,6 +173,8 @@ struct hsan_v300 {
 	bool boot_globals_verified;
 	struct device *dev;
 	struct net_device *ndev;
+    struct hsan_gro_capture_record *gro_capture;
+    struct hsan_gro_capture_file *gro_capture_file;
 	void __iomem *regs;
 	struct hsan_v300_rx_queue rxq[HSAN_OEM_RX_CHANNELS];
     unsigned int rx_channels;
@@ -325,6 +339,89 @@ struct hsan_v300 {
     u16 last_tx_wptr_readback;
     u16 last_rx_wptr_readback;
 };
+static ssize_t hsan_gro_capture_read(struct file *file, struct kobject *kobject,
+                                     const struct bin_attribute *attribute,
+                                     char *buffer, loff_t offset, size_t count)
+{
+    return memory_read_from_buffer(buffer, count, &offset,
+                                    attribute->private, attribute->size);
+}
+
+static void hsan_gro_capture_remove(void *context)
+{
+    struct hsan_gro_capture_file *file = context;
+
+    sysfs_remove_bin_file(file->kobject, &file->attribute);
+}
+
+static int hsan_gro_capture_setup(struct hsan_v300 *p)
+{
+    struct hsan_gro_capture_file *file;
+    int ret;
+
+    if (!of_property_read_bool(p->dev->of_node,
+                              "hsan,experimental-gro-raw-capture"))
+        return 0;
+    p->gro_capture = devm_kcalloc(p->dev, 2, sizeof(*p->gro_capture), GFP_KERNEL);
+    file = devm_kzalloc(p->dev, sizeof(*file), GFP_KERNEL);
+    if (!p->gro_capture || !file)
+        return -ENOMEM;
+    p->gro_capture_file = file;
+    sysfs_bin_attr_init(&file->attribute);
+    file->attribute.attr.name = "gro_capture";
+    file->attribute.attr.mode = 0400;
+    file->attribute.private = p->gro_capture;
+    file->attribute.size = 2 * sizeof(*p->gro_capture);
+    file->attribute.read = hsan_gro_capture_read;
+    file->kobject = &p->dev->kobj;
+    ret = sysfs_create_bin_file(file->kobject, &file->attribute);
+    if (ret)
+        return ret;
+    return devm_add_action_or_reset(p->dev, hsan_gro_capture_remove, file);
+}
+
+static bool hsan_gro_capture_needed(struct hsan_v300_rx_queue *q,
+                                    const struct hsan_pie_rx_metadata *metadata)
+{
+    struct hsan_gro_capture_record *r = q->parent->gro_capture;
+
+    if (!r || (q->channel < HSAN_NET_RX_CHANNELS && !metadata->vendor_aux) ||
+        !metadata->length || metadata->length > HSAN_GRO_CAPTURE_BYTES)
+        return false;
+    return !READ_ONCE(r[0].ready) ||
+           (metadata->length > ETH_FRAME_LEN && !READ_ONCE(r[1].ready));
+}
+
+/* Called only inside the revalidated RX DMA CPU admission window
+ * Keep the first vendor/GRO frame and the first frame larger than MTU
+ * Each record is immutable after its release-published GRO1 marker
+ */
+static u32 hsan_gro_capture_packet(struct hsan_v300_rx_queue *q,
+                                  const struct hsan_pie_rx_metadata *metadata,
+                                  const void *descriptor, const void *payload)
+{
+    struct hsan_gro_capture_record *records = q->parent->gro_capture;
+    unsigned int i;
+    u32 copied = 0;
+
+    for (i = 0; i < 2; i++) {
+        struct hsan_gro_capture_record *r = &records[i];
+
+        if (READ_ONCE(r->ready) || (i && metadata->length <= ETH_FRAME_LEN))
+            continue;
+        r->channel = cpu_to_le32(q->channel);
+        r->frame_bytes = cpu_to_le32(metadata->length);
+        r->source_port = cpu_to_le32(metadata->port);
+        r->subport = cpu_to_le32(metadata->subport);
+        r->vendor_aux = cpu_to_le32(metadata->vendor_aux);
+        memcpy(r->descriptor, descriptor, HSAN_DESC_BYTES);
+        memcpy(r->payload, payload, metadata->length);
+        smp_store_release(&r->ready, cpu_to_le32(0x314f5247U));
+        copied += metadata->length;
+    }
+    return copied;
+}
+
 
 static inline u32 hsan_r32(struct hsan_v300 *p, u32 offset)
 {
@@ -1255,7 +1352,9 @@ static int hsan_napi_poll(struct napi_struct *napi, int budget)
          * Hardware aggregates require their own GRO delivery path; do
          * not feed them to eth_type_trans as ordinary Ethernet frames.
          */
-        if (metadata.port != HSAN_LAN1_PORT || metadata.gro_segments) {
+        if (metadata.port != HSAN_LAN1_PORT || metadata.vendor_aux ||
+            (p->gro_capture && q->channel >= HSAN_NET_RX_CHANNELS &&
+             len > ETH_FRAME_LEN)) {
             hsan_rx_account(q, false, 0, false, false);
         } else if (len < ETH_HLEN) {
             hsan_rx_account(q, false, 0, true, false);
@@ -1330,6 +1429,8 @@ static int hsan_napi_poll(struct napi_struct *napi, int budget)
                         hsan_rx_probe_fault_locked(q, probe);
                         may_rearm = false;
                     } else {
+                        bool capture = hsan_gro_capture_needed(q, &metadata);
+
                         /* STOP cannot close the CPU publication gate
                          * between descriptor validation, DMA sync,
                          * bounded copy and completed-slot re-arm.
@@ -1339,14 +1440,19 @@ static int hsan_napi_poll(struct napi_struct *napi, int budget)
                          * ownership when only the coherent descriptor
                          * and its software cursor will be updated.
                          */
-                        if (skb) {
+                        if (skb || capture) {
                             dma_sync_single_for_cpu(p->dev, s->dma,
                                                     q->buffer_size,
                                                     DMA_FROM_DEVICE);
                             p->rx_cpu_sync_admissions++;
                             cpu_sync_admitted = true;
-                            skb_put_data(skb, s->buffer, len);
-                            p->rx_cpu_copied_bytes += len;
+                            if (skb) {
+                                skb_put_data(skb, s->buffer, len);
+                                p->rx_cpu_copied_bytes += len;
+                            }
+                            if (capture)
+                                p->rx_cpu_copied_bytes += hsan_gro_capture_packet(q,
+                                    &metadata, hsan_rx_desc(q, slot), s->buffer);
                             dma_sync_single_for_device(p->dev, s->dma,
                                                        q->buffer_size,
                                                        DMA_FROM_DEVICE);
@@ -5388,6 +5494,9 @@ static int hsan_probe(struct platform_device *pdev)
     p->gro_channels = gro_channels;
     p->rx_channels = HSAN_NET_RX_CHANNELS + gro_channels;
     p->irq_resources = irq_count;
+    ret = hsan_gro_capture_setup(p);
+    if (ret)
+        goto err_free;
     p->regs = devm_platform_ioremap_resource(pdev, 0);
     if (IS_ERR(p->regs)) {
         ret = PTR_ERR(p->regs);

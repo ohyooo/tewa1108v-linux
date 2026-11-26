@@ -9,7 +9,7 @@ struct hsan_pie_rx_metadata {
 	u16 length;
 	u8 port;
 	u8 subport;
-	u8 gro_segments;
+	u8 vendor_aux; /* OEM private five-bit field, not a proved segment count */
 	bool bypass;
 };
 
@@ -28,7 +28,7 @@ hsan_pie_rx_decode(const u8 *desc)
 		.length = get_unaligned_le16(desc),
 		.port = bypass ? desc[18] : (desc[9] >> 3),
 		.subport = bypass ? desc[17] : desc[18],
-		.gro_segments = get_unaligned_le32(desc + 20) >> 27,
+		.vendor_aux = get_unaligned_le32(desc + 20) >> 27,
 		.bypass = bypass,
 	};
 }
@@ -38,7 +38,7 @@ hsan_pie_rx_metadata_equal(const struct hsan_pie_rx_metadata *a,
 			   const struct hsan_pie_rx_metadata *b)
 {
 	return a->length == b->length && a->port == b->port &&
-	       a->subport == b->subport && a->gro_segments == b->gro_segments &&
+	       a->subport == b->subport && a->vendor_aux == b->vendor_aux &&
 	       a->bypass == b->bypass;
 }
 

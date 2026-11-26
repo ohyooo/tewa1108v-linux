@@ -26,6 +26,7 @@
     "drivers/lan1/hsan-lsw-platform.h",
     "drivers/lan1/hsan-mdio.c",
     "drivers/lan1/hsan-net-v300.c",
+    "drivers/lan1/hsan-pfe-gro-v4-plan.h",
     "drivers/lan1/hsan-pfe-l3intf-plan.h",
     "drivers/lan1/hsan-pfe-pa-port-plan.h",
     "drivers/lan1/hsan-pfe-vlan-plan.h",

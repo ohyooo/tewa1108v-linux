@@ -24,6 +24,7 @@
 #include "hsan-lsw-dp.h"
 #include "hsan-lsw-pfe.h"
 #include "hsan-pfe-l3intf-plan.h"
+#include "hsan-pfe-gro-v4-plan.h"
 #include "hsan-pfe-pa-port-plan.h"
 #include "hsan-capa-lookup-plan.h"
 #include "hsan-pfe-vlan-plan.h"
@@ -307,6 +308,11 @@ struct hsan_pfe_state {
     bool mcc_hw_attempted;
     bool mcc_write_stream_submitted;
     bool mcc_registers_verified;
+    bool gro_resources_ready;
+    bool gro_flow_prepared;
+    bool gro_flow_installed;
+    u32 gro_flow_words[HSAN_PFE_GRO_WORK_WORDS];
+    u32 gro_flow_hardware_id;
     bool mcc_hw_uncertain;
     u32 mcc_hw_rows_written;
 	bool global_writes_attempted;
@@ -1192,7 +1198,104 @@ static int hsan_pfe_gro_resources(struct platform_device *pdev,
     ret = hsan_lsw_nhp_commit(&pdev->dev, 1, before, nhp);
     if (ret)
         return ret;
+    state->gro_resources_ready = true;
     dev_info(&pdev->dev, "GRO resource1 L3/NHP CPU readback matched; no flow installed\n");
+    return 0;
+}
+
+/* One explicitly requested diagnostic TCP flow, with immutable preflight
+ * state and a retained original table-manager-shaped software record
+ */
+static ssize_t gro_flow_state_show(struct device *dev,
+                                  struct device_attribute *attr, char *buf)
+{
+    struct hsan_pfe_state *state = dev_get_drvdata(dev);
+    u32 status, data;
+    int ret;
+
+    if (!state || !state->gro_flow_installed)
+        return -ENODATA;
+    ret = hsan_lsw_napt_gro_v4_snapshot(state->gro_flow_hardware_id,
+                                       &status, &data);
+    return sysfs_emit(buf, "result=%d id=%#x status=%#x data=%#x age_code=%u\n",
+                       ret, state->gro_flow_hardware_id, status, data, data & 7);
+}
+static DEVICE_ATTR_RO(gro_flow_state);
+static struct attribute *hsan_pfe_attrs[] = {
+    &dev_attr_gro_flow_state.attr,
+    NULL,
+};
+ATTRIBUTE_GROUPS(hsan_pfe);
+
+static int hsan_pfe_gro_flow(struct platform_device *pdev,
+                            struct hsan_pfe_state *state, bool submit)
+{
+    static const char prop[] = "hsan,experimental-gro-v4-tcp-flow";
+    struct hsan_pfe_gro_v4_tuple key;
+    u32 tuple[4], post_partition;
+    u8 candidate[40] = {0};
+    int ret;
+
+    if (!of_find_property(pdev->dev.of_node, prop, NULL))
+        return 0;
+    if (!submit) {
+        if (!of_property_read_bool(pdev->dev.of_node,
+                                  "hsan,experimental-gro-resource-init") ||
+            of_property_count_u32_elems(pdev->dev.of_node, prop) != 4)
+            return -EINVAL;
+        ret = of_property_read_u32_array(pdev->dev.of_node, prop, tuple, 4);
+        if (ret || !tuple[2] || tuple[2] > U16_MAX ||
+            !tuple[3] || tuple[3] > U16_MAX)
+            return -EINVAL;
+        key = (struct hsan_pfe_gro_v4_tuple) {
+            .saddr_host = tuple[0], .daddr_host = tuple[1],
+            .sport_host = tuple[2], .dport_host = tuple[3],
+        };
+        ret = hsan_pfe_gro_v4_plan(&key, 1, 1, 1, state->gro_flow_words);
+        if (ret)
+            return ret;
+        ret = hsan_lsw_shadow_table_reserve_range(&pdev->dev, 0x128, 0, 1);
+        if (ret)
+            return ret;
+        ret = hsan_lsw_shadow_table_reserve_range(&pdev->dev, 0x105, 0, 1);
+        if (ret)
+            return ret;
+        put_unaligned_le32(key.daddr_host, candidate);
+        put_unaligned_le32(key.saddr_host, candidate + 4);
+        put_unaligned_le16(key.dport_host, candidate + 8);
+        put_unaligned_le16(key.sport_host, candidate + 10);
+        candidate[14] = 10U << 3;
+        candidate[15] = 6;
+        put_unaligned_le16(0x0401U, candidate + 20);
+        candidate[29] = 0x22;
+        ret = hsan_lsw_shadow_table_write(&pdev->dev, 0x105, 0,
+                                          candidate, sizeof(candidate));
+        if (ret)
+            return ret;
+        state->gro_flow_prepared = true;
+        return 0;
+    }
+    if (!state->gro_flow_prepared || !state->gro_resources_ready ||
+        state->napt_partition_commands != 2)
+        return -EHOSTDOWN;
+    ret = hsan_pfe_fam_fence_guard(state, 12);
+    if (ret)
+        return ret;
+    /* hi_pfe_napt_init @0x6550..0x6578 after the two init commands */
+    post_partition = 0x00f00000U |
+        ((192000000U / (4U * (state->napt_observed_rows[0] +
+                              state->napt_observed_rows[1]))) & 0xffffU);
+    ret = hsan_lsw_write_verify(0x03000050U, post_partition);
+    if (ret)
+        return ret;
+    ret = hsan_lsw_napt_gro_v4_commit(state->gro_flow_words,
+                                    &state->gro_flow_hardware_id);
+    if (ret)
+        return ret;
+    state->gro_flow_installed = true;
+    dev_info(&pdev->dev,
+        "GRO IPv4 TCP diagnostic flow command accepted index=%#x; RX format not qualified\n",
+        state->gro_flow_hardware_id);
     return 0;
 }
 
@@ -2920,6 +3023,9 @@ static int hsan_pfe_preflight_hw_plan(struct platform_device *pdev,
     ret = hsan_pfe_gro_resources(pdev, platform_get_drvdata(pdev), false);
     if (ret)
         return ret;
+    ret = hsan_pfe_gro_flow(pdev, platform_get_drvdata(pdev), false);
+    if (ret)
+        return ret;
     if (!opp && !tfrt && !mcc && !ofc && !ifc && !pa &&
         !napt && !napt_partition)
         return 0;
@@ -3260,6 +3366,10 @@ static int hsan_pfe_probe_locked(struct platform_device *pdev)
     ret = hsan_pfe_gro_resources(pdev, state, true);
     if (ret)
         goto rollback;
+    state->probe_step = 12;
+    ret = hsan_pfe_gro_flow(pdev, state, true);
+    if (ret)
+        goto rollback;
     mutex_lock(&hsan_pfe_owner_lock);
     hsan_pfe_owner = state;
     mutex_unlock(&hsan_pfe_owner_lock);
@@ -3446,7 +3556,8 @@ MODULE_DEVICE_TABLE(of, hsan_pfe_match);
 static struct platform_driver hsan_pfe_driver = {
 	.probe = hsan_pfe_probe, .remove = hsan_pfe_remove,
     .driver = { .name = "hsan-lsw-pfe", .of_match_table = hsan_pfe_match,
-                .suppress_bind_attrs = true, .pm = &hsan_pfe_pm_ops },
+                .suppress_bind_attrs = true, .pm = &hsan_pfe_pm_ops,
+                .dev_groups = hsan_pfe_groups },
 };
 module_platform_driver(hsan_pfe_driver);
 MODULE_LICENSE("GPL");

@@ -144,6 +144,9 @@ static bool hsan_lsw_fam_private_span(u32 address, u32 bytes)
  */
 static DEFINE_MUTEX(hsan_lsw_napt_lock);
 static bool hsan_lsw_napt_poisoned;
+static bool hsan_lsw_napt_partition_complete;
+static bool hsan_lsw_napt_gro_attempted;
+static u32 hsan_lsw_napt_gro_id = U32_MAX;
 static atomic_t hsan_lsw_napt_module_pinned = ATOMIC_INIT(0);
 static bool hsan_lsw_napt_private_span(u32 address, u32 bytes)
 {
@@ -159,6 +162,9 @@ static bool hsan_lsw_napt_private_span(u32 address, u32 bytes)
     last = first + bytes - 1;
     if ((first >> 24) != 3 || (last >> 24) != 3)
         return false;
+    if ((first <= 0x03000117U && last >= 0x0300008cU) ||
+        (first <= 0x030002efU && last >= 0x030002d4U))
+        return true;
     for (i = 0; i < ARRAY_SIZE(private_csrs); i++)
         if (first <= private_csrs[i] && last >= private_csrs[i])
             return true;
@@ -1408,12 +1414,174 @@ int hsan_lsw_napt_partition_commit(const u32 words[5], u32 *last_status)
             goto out;
         }
     }
+    hsan_lsw_napt_partition_complete = true;
 out:
     *last_status = status;
     mutex_unlock(&hsan_lsw_napt_lock);
     return ret;
 }
 EXPORT_SYMBOL_GPL(hsan_lsw_napt_partition_commit);
+
+/* OEM IPv4 GRO add command @0x5ae0..0x5c94, restricted to resource1
+ * The init latch remains sealed; command readiness comes only from both
+ * completed partition commands, never from clearing an uncertainty flag
+ */
+int hsan_lsw_napt_gro_v4_commit(const u32 words[19], u32 *hardware_id)
+{
+    static const struct { u32 csr; u8 word; } params[] = {
+        {0x030000a8,1}, {0x030000b0,3}, {0x030000ac,2},
+        {0x030000b4,4}, {0x030000b8,5}, {0x030000bc,6},
+        {0x030000c0,7}, {0x030000c4,8}, {0x030000c8,9},
+        {0x030000cc,10}, {0x030000d0,11}, {0x030002d8,12},
+        {0x030002d4,13}, {0x030002dc,14}, {0x030002e0,15},
+        {0x030002e4,16}, {0x030002e8,17}, {0x030002ec,18},
+    };
+    static const u8 zero_words[] = {5,6,7,9,10,11,13,14,16,17,18};
+    struct hsan_bank *bank;
+    unsigned long flags;
+    unsigned int i;
+    u32 offset, status;
+    int ret;
+
+    if (!hardware_id)
+        return -EINVAL;
+    *hardware_id = U32_MAX;
+    if (!words || words[0] != 0x00010100U || words[1] != 0x04020000U ||
+        words[2] != 0x50000004U || words[12] != 0x00000603U ||
+        words[15] != 0x88000000U)
+        return -EINVAL;
+    for (i = 0; i < ARRAY_SIZE(zero_words); i++)
+        if (words[zero_words[i]])
+            return -EINVAL;
+    if (!READ_ONCE(experimental_allow_lsw_writes))
+        return -EACCES;
+    mutex_lock(&hsan_lsw_napt_lock);
+    if (!hsan_lsw_napt_partition_complete) {
+        ret = -EHOSTDOWN;
+        goto out;
+    }
+    if (hsan_lsw_napt_gro_attempted) {
+        ret = -EALREADY;
+        goto out;
+    }
+    spin_lock_irqsave(&hsan_lsw_lock, flags);
+    ret = hsan_lsw_access_locked(0x0300008cU, &bank, &offset);
+    if (!ret)
+        ret = hsan_lsw_access_locked(0x03000090U, &bank, &offset);
+    for (i = 0; !ret && i < ARRAY_SIZE(params); i++)
+        ret = hsan_lsw_access_locked(params[i].csr, &bank, &offset);
+    spin_unlock_irqrestore(&hsan_lsw_lock, flags);
+    if (ret)
+        goto out;
+    ret = hsan_lsw_read_raw(0x0300008cU, &status);
+    if (ret)
+        goto out;
+    if (status & BIT(24)) {
+        ret = -EBUSY;
+        goto out;
+    }
+    hsan_lsw_napt_gro_attempted = true;
+    for (i = 0; i < ARRAY_SIZE(params); i++) {
+        ret = hsan_lsw_write_raw(params[i].csr, words[params[i].word]);
+        if (ret)
+            goto out;
+    }
+    ret = hsan_lsw_write_raw(0x0300008cU, words[0] | BIT(24) | BIT(0));
+    if (ret)
+        goto out;
+    for (i = 0; i < HSAN_NAPT_POLL_LIMIT; i++) {
+        ret = hsan_lsw_read_raw(0x0300008cU, &status);
+        if (ret)
+            goto out;
+        if (!(status & BIT(24)))
+            break;
+        usleep_range(100, 200);
+    }
+    if (i == HSAN_NAPT_POLL_LIMIT) {
+        ret = -ETIMEDOUT;
+        goto out;
+    }
+    ret = hsan_lsw_read_raw(0x03000090U, &status);
+    if (ret)
+        goto out;
+    if (!(status & BIT(21))) {
+        ret = -EIO;
+        goto out;
+    }
+    *hardware_id = status & GENMASK(20, 0);
+    hsan_lsw_napt_gro_id = *hardware_id;
+out:
+    mutex_unlock(&hsan_lsw_napt_lock);
+    return ret;
+}
+EXPORT_SYMBOL_GPL(hsan_lsw_napt_gro_v4_commit);
+
+/* OEM get_age @0x5f70 queries the encoded hardware ID, not a RAM offset
+ * This command only snapshots a flow; it neither refreshes nor reinstalls it
+ */
+int hsan_lsw_napt_gro_v4_snapshot(u32 hardware_id, u32 *status, u32 *data)
+{
+    static bool uncertain;
+    unsigned int i;
+    int ret;
+
+    if (!status || !data || hardware_id > GENMASK(20, 0))
+        return -EINVAL;
+    *status = 0;
+    *data = 0;
+    if (!READ_ONCE(experimental_allow_lsw_writes))
+        return -EACCES;
+    mutex_lock(&hsan_lsw_napt_lock);
+    if (!hsan_lsw_napt_partition_complete || !hsan_lsw_napt_gro_attempted) {
+        ret = -EHOSTDOWN;
+        goto out;
+    }
+    if (hardware_id != hsan_lsw_napt_gro_id) {
+        ret = -EINVAL;
+        goto out;
+    }
+    if (uncertain) {
+        ret = -EUCLEAN;
+        goto out;
+    }
+    ret = hsan_lsw_check_span(0x030000d4U, 12, false);
+    if (ret)
+        goto out;
+    ret = hsan_lsw_read_raw(0x030000d4U, status);
+    if (ret)
+        goto out;
+    if (*status & BIT(31)) {
+        ret = -EBUSY;
+        goto out;
+    }
+    uncertain = true;
+    ret = hsan_lsw_write_raw(0x030000d4U, BIT(31) | hardware_id);
+    if (ret)
+        goto out;
+    for (i = 0; i < HSAN_NAPT_POLL_LIMIT; i++) {
+        ret = hsan_lsw_read_raw(0x030000d4U, status);
+        if (ret)
+            goto out;
+        if (!(*status & BIT(31)))
+            break;
+        usleep_range(100, 200);
+    }
+    if (i == HSAN_NAPT_POLL_LIMIT) {
+        ret = -ETIMEDOUT;
+        goto out;
+    }
+    uncertain = false;
+    if (*status & BIT(29)) {
+        ret = -ENOENT;
+        goto out;
+    }
+    ret = hsan_lsw_read_raw(0x030000dcU, data);
+out:
+    mutex_unlock(&hsan_lsw_napt_lock);
+    return ret;
+}
+EXPORT_SYMBOL_GPL(hsan_lsw_napt_gro_v4_snapshot);
+
 
 
 
