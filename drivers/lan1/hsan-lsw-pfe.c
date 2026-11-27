@@ -2766,6 +2766,10 @@ static int hsan_pfe_program_ifc_lan1_qos(struct platform_device *pdev,
 out:
     quarantine_ret = hsan_lsw_ifc_quarantine();
     state->ifc_engine_quarantined = true;
+    if (!ret && !quarantine_ret)
+        dev_warn(&pdev->dev,
+            "IFC %u commands accepted; engine quarantined; allocated QoS row also submitted\n",
+            state->ifc_rows_committed);
     return ret ? ret : quarantine_ret;
 }
 

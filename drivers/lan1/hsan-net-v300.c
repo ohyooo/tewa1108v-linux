@@ -141,6 +141,8 @@ struct hsan_v300_rx_queue {
     enum hsan_rx_wptr_cmp_state wptr_cmp_state;
     u32 rx_count;
     u32 buffer_size;
+    struct sk_buff *rx_assembly;
+    unsigned int rx_assembly_expected;
     u8 ring_order;
     unsigned int channel;
     int irq;
@@ -1166,36 +1168,107 @@ static void hsan_rx_account(struct hsan_v300_rx_queue *q, bool delivered,
  * private skbs are discarded. This is a partial OEM batching port, not
  * proof of FAM HW STOP ACK or equivalence to the 8-channel vendor queues.
  */
-/* The captured hardware aggregate is a complete, untagged IPv4/TCP
- * datagram with recomputed IP length and IP/TCP checksums. Admit only the
- * diagnostic flow and observed fixed header format. Leave checksum work
- * enabled for the stack and do not invent an MSS or GSO segment count.
- * This skb is CPU-owned; validation never accesses a live DMA mapping.
+/* RX buffers retain their original DMA geometry. A split aggregate is
+ * assembled only from private CPU copies after each replacement descriptor
+ * has been published. Its IP length bounds the allocation and every append.
  */
+static unsigned int hsan_gro_v4_frame_length(const struct sk_buff *skb)
+{
+    const struct iphdr *ip;
+    const struct tcphdr *tcp;
+    unsigned int expected;
+
+    if (skb->len < ETH_HLEN + sizeof(*ip) + sizeof(*tcp) ||
+        get_unaligned_be16(skb->data + 12) != ETH_P_IP)
+        return 0;
+    ip = (const struct iphdr *)(skb->data + ETH_HLEN);
+    expected = ETH_HLEN + ntohs(ip->tot_len);
+    if (ip->version != 4 || ip->ihl != 5 || ip->protocol != IPPROTO_TCP ||
+        expected < ETH_HLEN + sizeof(*ip) + sizeof(*tcp) ||
+        (ip->frag_off & htons(IP_MF | IP_OFFSET)) ||
+        ip->saddr != htonl(0xc0a8000a) || ip->daddr != htonl(0xc0a80001) ||
+        ip_fast_csum(ip, 5))
+        return 0;
+    tcp = (const struct tcphdr *)(ip + 1);
+    if (tcp->doff != 5 || tcp->source != htons(18086) ||
+        tcp->dest != htons(18087) || tcp->syn || tcp->fin ||
+        tcp->rst || tcp->urg)
+        return 0;
+    return expected;
+}
+
 static bool hsan_gro_v4_tcp_valid(const struct sk_buff *skb)
 {
     const struct iphdr *ip;
     const struct tcphdr *tcp;
     unsigned int length;
 
-    if (skb->len <= ETH_FRAME_LEN || skb->len > HSAN_GRO_CAPTURE_BYTES ||
-        get_unaligned_be16(skb->data + 12) != ETH_P_IP)
+    if (hsan_gro_v4_frame_length(skb) != skb->len)
         return false;
     ip = (const struct iphdr *)(skb->data + ETH_HLEN);
-    if (ip->version != 4 || ip->ihl != 5 || ip->protocol != IPPROTO_TCP ||
-        ntohs(ip->tot_len) != skb->len - ETH_HLEN ||
-        (ip->frag_off & htons(IP_MF | IP_OFFSET)) ||
-        ip->saddr != htonl(0xc0a8000a) || ip->daddr != htonl(0xc0a80001) ||
-        ip_fast_csum(ip, 5))
-        return false;
-    length = ntohs(ip->tot_len) - sizeof(*ip);
     tcp = (const struct tcphdr *)(ip + 1);
-    if (tcp->doff != 5 || tcp->source != htons(18086) ||
-        tcp->dest != htons(18087) || tcp->syn || tcp->fin ||
-        tcp->rst || tcp->urg)
-        return false;
+    length = ntohs(ip->tot_len) - sizeof(*ip);
     return !csum_tcpudp_magic(ip->saddr, ip->daddr, length, IPPROTO_TCP,
                              csum_partial(tcp, length, 0));
+}
+
+static void hsan_gro_discard_partial(struct hsan_v300_rx_queue *q, bool error)
+{
+    if (!q->rx_assembly)
+        return;
+    dev_kfree_skb_any(q->rx_assembly);
+    q->rx_assembly = NULL;
+    q->rx_assembly_expected = 0;
+    hsan_rx_account(q, false, 0, error, false);
+}
+
+static struct sk_buff *hsan_gro_join_frame(struct hsan_v300_rx_queue *q,
+                                           struct sk_buff *skb)
+{
+    struct hsan_pie_rx_metadata metadata;
+    struct sk_buff *packet;
+    unsigned int expected, remaining;
+    bool enabled = q->parent->gro_capture && q->channel >= HSAN_NET_RX_CHANNELS;
+
+    memcpy(&metadata, skb->cb, sizeof(metadata));
+    if (metadata.frame_start) {
+        hsan_gro_discard_partial(q, true);
+        if (metadata.frame_end)
+            return skb;
+        if (!enabled || skb->len != q->buffer_size)
+            goto invalid;
+        expected = hsan_gro_v4_frame_length(skb);
+        if (expected <= skb->len)
+            goto invalid;
+        if (pskb_expand_head(skb, 0, expected - skb->len, GFP_ATOMIC))
+            goto invalid;
+        q->rx_assembly = skb;
+        q->rx_assembly_expected = expected;
+        return NULL;
+    }
+    if (!enabled || !q->rx_assembly || metadata.port ||
+        metadata.subport || metadata.vendor_aux)
+        goto invalid;
+    remaining = q->rx_assembly_expected - q->rx_assembly->len;
+    if (!skb->len || skb->len > remaining ||
+        (!metadata.frame_end &&
+         (skb->len != q->buffer_size || skb->len == remaining)) ||
+        (metadata.frame_end && skb->len != remaining))
+        goto invalid;
+    skb_put_data(q->rx_assembly, skb->data, skb->len);
+    dev_kfree_skb_any(skb);
+    if (!metadata.frame_end)
+        return NULL;
+    packet = q->rx_assembly;
+    q->rx_assembly = NULL;
+    q->rx_assembly_expected = 0;
+    return packet;
+
+invalid:
+    hsan_gro_discard_partial(q, true);
+    dev_kfree_skb_any(skb);
+    hsan_rx_account(q, false, 0, true, false);
+    return NULL;
 }
 
 static bool hsan_rx_flush_kick_batch(struct hsan_v300_rx_queue *q,
@@ -1279,8 +1352,10 @@ static bool hsan_rx_flush_kick_batch(struct hsan_v300_rx_queue *q,
     for (i = 0; i < pending; i++) {
         struct sk_buff *skb = pkts[i];
 
-        if (!skb)
+        if (!skb) {
+            hsan_gro_discard_partial(q, true);
             continue;
+        }
         /* STOP may win after the successful kick lock is released but
          * before GRO. Recheck the visible software fence per skb; this
          * closes an observable late-STOP window, not the race with an
@@ -1289,19 +1364,25 @@ static bool hsan_rx_flush_kick_batch(struct hsan_v300_rx_queue *q,
         if (published && READ_ONCE(p->active) &&
             !test_bit(HSAN_FAULT_DATAPATH, &p->fault_flags) &&
             !hsan_lsw_dp_fam_cpu_fenced()) {
-            unsigned int len = skb->len;
+            unsigned int len;
 
+            skb = hsan_gro_join_frame(q, skb);
+            if (!skb)
+                continue;
+            len = skb->len;
             if (q->channel >= HSAN_NET_RX_CHANNELS && len > ETH_FRAME_LEN &&
                 (!p->gro_capture || !hsan_gro_v4_tcp_valid(skb))) {
                 dev_kfree_skb_any(skb);
                 hsan_rx_account(q, false, 0, true, false);
                 continue;
             }
+            memset(skb->cb, 0, sizeof(skb->cb));
             skb_record_rx_queue(skb, q->channel);
             skb->protocol = eth_type_trans(skb, p->ndev);
             napi_gro_receive(napi, skb);
             hsan_rx_account(q, true, len, false, false);
         } else {
+            hsan_gro_discard_partial(q, false);
             dev_kfree_skb_any(skb);
             hsan_rx_account(q, false, 0, false, true);
         }
@@ -1401,11 +1482,18 @@ static int hsan_napi_poll(struct napi_struct *napi, int budget)
          * Large hardware aggregates require the bounded diagnostic
          * format validator before any upper-stack handoff.
          */
-        if (metadata.port != HSAN_LAN1_PORT || metadata.vendor_aux ||
+        if (metadata.vendor_aux ||
+            (metadata.port != HSAN_LAN1_PORT &&
+             !(p->gro_capture && q->channel >= HSAN_NET_RX_CHANNELS &&
+               !metadata.frame_start)) ||
+            ((!metadata.frame_start || !metadata.frame_end) &&
+             !(p->gro_capture && q->channel >= HSAN_NET_RX_CHANNELS)) ||
             (!p->gro_capture && q->channel >= HSAN_NET_RX_CHANNELS &&
              len > ETH_FRAME_LEN)) {
             hsan_rx_account(q, false, 0, false, false);
-        } else if (len < ETH_HLEN) {
+        } else if (!len || (len < ETH_HLEN &&
+                   !(p->gro_capture && q->channel >= HSAN_NET_RX_CHANNELS &&
+                     !metadata.frame_start))) {
             hsan_rx_account(q, false, 0, true, false);
 		} else {
 			skb = napi_alloc_skb(napi, len + NET_IP_ALIGN);
@@ -1497,6 +1585,7 @@ static int hsan_napi_poll(struct napi_struct *napi, int budget)
                             cpu_sync_admitted = true;
                             if (skb) {
                                 skb_put_data(skb, s->buffer, len);
+                                memcpy(skb->cb, &metadata, sizeof(metadata));
                                 p->rx_cpu_copied_bytes += len;
                             }
                             if (capture)
@@ -2450,6 +2539,7 @@ static void hsan_disable_owned_napi(struct hsan_v300 *p)
             napi_disable(&q->napi);
             q->napi_enabled = false;
         }
+        hsan_gro_discard_partial(q, false);
     }
 }
 
