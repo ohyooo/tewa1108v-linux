@@ -103,6 +103,8 @@ UDP 验证可用 `-Rounds` 指定回传次数，范围 1..20000，默认 1000
 
 `--gro-flow` 配合前述选项安装限定五元组的 IPv4 TCP 实验流，启用原始采样和经长度、格式及 IP/TCP 校验检查的聚合接收，默认关闭，完整稳定性与 STOP 验收仍待完成
 
+`--gro-tuple SRC_IP_WORD DST_IP_WORD SRC_PORT DST_PORT` 配合 `--gro-flow` 指定该实验流，IPv4 使用网络顺序整数，例如 `0xc0a8000a 0xc0a80001 18186 18187`，PFE 与接收端校验使用同一配置，省略时保留默认测试流
+
 `--ifc-lan1-mac` 配合 `--gro-flow` 使用通用测试 MAC，仅替换已归属的默认 IFC 行用于入口诊断，默认关闭
 
 `--ifc-lan1-qos` 配合 `--gro-flow` 安装本次启动预留的 LAN1 队列诊断规则，可从 PFE 的只读 `ifc_hit_counter` 观察计数，与 `--ifc-lan1-mac` 互斥，默认关闭

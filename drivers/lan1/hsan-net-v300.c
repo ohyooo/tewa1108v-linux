@@ -181,6 +181,8 @@ struct hsan_v300 {
 	struct net_device *ndev;
     struct hsan_gro_capture_record *gro_capture;
     struct hsan_gro_capture_file *gro_capture_file;
+    __be32 gro_saddr, gro_daddr;
+    __be16 gro_sport, gro_dport;
 	void __iomem *regs;
 	struct hsan_v300_rx_queue rxq[HSAN_OEM_RX_CHANNELS];
     unsigned int rx_channels;
@@ -363,11 +365,31 @@ static void hsan_gro_capture_remove(void *context)
 static int hsan_gro_capture_setup(struct hsan_v300 *p)
 {
     struct hsan_gro_capture_file *file;
+    struct device_node *pfe;
+    u32 tuple[4];
     int ret;
 
     if (!of_property_read_bool(p->dev->of_node,
                               "hsan,experimental-gro-raw-capture"))
         return 0;
+    pfe = of_find_compatible_node(NULL, NULL, "hsan,pfe");
+    if (!pfe)
+        return -ENODEV;
+    ret = of_device_is_available(pfe) &&
+          of_property_count_u32_elems(pfe,
+              "hsan,experimental-gro-v4-tcp-flow") == 4 ?
+          of_property_read_u32_array(pfe,
+              "hsan,experimental-gro-v4-tcp-flow", tuple, 4) : -EINVAL;
+    of_node_put(pfe);
+    if (ret)
+        return ret;
+    if (!tuple[2] || tuple[2] > U16_MAX ||
+        !tuple[3] || tuple[3] > U16_MAX)
+        return -EINVAL;
+    p->gro_saddr = htonl(tuple[0]);
+    p->gro_daddr = htonl(tuple[1]);
+    p->gro_sport = htons(tuple[2]);
+    p->gro_dport = htons(tuple[3]);
     p->gro_capture = devm_kcalloc(p->dev, 3, sizeof(*p->gro_capture), GFP_KERNEL);
     file = devm_kzalloc(p->dev, sizeof(*file), GFP_KERNEL);
     if (!p->gro_capture || !file)
@@ -1172,7 +1194,8 @@ static void hsan_rx_account(struct hsan_v300_rx_queue *q, bool delivered,
  * assembled only from private CPU copies after each replacement descriptor
  * has been published. Its IP length bounds the allocation and every append.
  */
-static unsigned int hsan_gro_v4_frame_length(const struct sk_buff *skb)
+static unsigned int hsan_gro_v4_frame_length(const struct hsan_v300 *p,
+                                              const struct sk_buff *skb)
 {
     const struct iphdr *ip;
     const struct tcphdr *tcp;
@@ -1186,24 +1209,25 @@ static unsigned int hsan_gro_v4_frame_length(const struct sk_buff *skb)
     if (ip->version != 4 || ip->ihl != 5 || ip->protocol != IPPROTO_TCP ||
         expected < ETH_HLEN + sizeof(*ip) + sizeof(*tcp) ||
         (ip->frag_off & htons(IP_MF | IP_OFFSET)) ||
-        ip->saddr != htonl(0xc0a8000a) || ip->daddr != htonl(0xc0a80001) ||
+        ip->saddr != p->gro_saddr || ip->daddr != p->gro_daddr ||
         ip_fast_csum(ip, 5))
         return 0;
     tcp = (const struct tcphdr *)(ip + 1);
-    if (tcp->doff != 5 || tcp->source != htons(18086) ||
-        tcp->dest != htons(18087) || tcp->syn || tcp->fin ||
+    if (tcp->doff != 5 || tcp->source != p->gro_sport ||
+        tcp->dest != p->gro_dport || tcp->syn || tcp->fin ||
         tcp->rst || tcp->urg)
         return 0;
     return expected;
 }
 
-static bool hsan_gro_v4_tcp_valid(const struct sk_buff *skb)
+static bool hsan_gro_v4_tcp_valid(const struct hsan_v300 *p,
+                                  const struct sk_buff *skb)
 {
     const struct iphdr *ip;
     const struct tcphdr *tcp;
     unsigned int length;
 
-    if (hsan_gro_v4_frame_length(skb) != skb->len)
+    if (hsan_gro_v4_frame_length(p, skb) != skb->len)
         return false;
     ip = (const struct iphdr *)(skb->data + ETH_HLEN);
     tcp = (const struct tcphdr *)(ip + 1);
@@ -1237,7 +1261,7 @@ static struct sk_buff *hsan_gro_join_frame(struct hsan_v300_rx_queue *q,
             return skb;
         if (!enabled || skb->len != q->buffer_size)
             goto invalid;
-        expected = hsan_gro_v4_frame_length(skb);
+        expected = hsan_gro_v4_frame_length(q->parent, skb);
         if (expected <= skb->len)
             goto invalid;
         if (pskb_expand_head(skb, 0, expected - skb->len, GFP_ATOMIC))
@@ -1371,7 +1395,7 @@ static bool hsan_rx_flush_kick_batch(struct hsan_v300_rx_queue *q,
                 continue;
             len = skb->len;
             if (q->channel >= HSAN_NET_RX_CHANNELS && len > ETH_FRAME_LEN &&
-                (!p->gro_capture || !hsan_gro_v4_tcp_valid(skb))) {
+                (!p->gro_capture || !hsan_gro_v4_tcp_valid(p, skb))) {
                 dev_kfree_skb_any(skb);
                 hsan_rx_account(q, false, 0, true, false);
                 continue;
