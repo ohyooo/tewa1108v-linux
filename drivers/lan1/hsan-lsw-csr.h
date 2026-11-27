@@ -65,6 +65,9 @@ int hsan_lsw_ifc_read_window(u16 index, u32 words[8]);
 int hsan_lsw_ifc_quarantine(void);
 int hsan_lsw_ifc_commit(u16 index, const u32 control[7],
                         const u32 data[8], u32 *last_status);
+/* Native dynamic callback publishes action halves before the key command */
+int hsan_lsw_ifc_dynamic_commit(u16 index, const u32 control[7],
+                        const u32 data[8], u32 *last_status);
 /* Stage44 OEM NAPT 2-command transaction: observed board words only.
  * Successful bit0-clear polls do NOT imply installed NAT hardware flows.
  * A first attempted write permanently quarantines/re-pins this engine.

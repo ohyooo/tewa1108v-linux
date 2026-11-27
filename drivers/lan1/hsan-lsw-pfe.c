@@ -2626,7 +2626,7 @@ static int hsan_pfe_program_ifc_lan1_qos(struct platform_device *pdev,
     ret = hsan_pfe_fam_fence_guard(state, 112U);
     if (ret)
         goto out;
-    ret = hsan_lsw_ifc_commit(HSAN_PFE_IFC_DYNAMIC_FIRST,
+    ret = hsan_lsw_ifc_dynamic_commit(HSAN_PFE_IFC_DYNAMIC_FIRST,
             hsan_ifc_lan1_qos_row,
             hsan_ifc_lan1_qos_row + HSAN_PFE_IFC_CONTROL_WORDS,
             &state->ifc_last_status);

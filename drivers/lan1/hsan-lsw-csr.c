@@ -1114,8 +1114,8 @@ int hsan_lsw_ifc_health(void)
 }
 EXPORT_SYMBOL_GPL(hsan_lsw_ifc_health);
 
-int hsan_lsw_ifc_commit(u16 index, const u32 control[7],
-                        const u32 data[8], u32 *last_status)
+static int hsan_lsw_ifc_commit_ordered(u16 index, const u32 control[7],
+                        const u32 data[8], u32 *last_status, bool dynamic)
 {
     struct hsan_bank *bank, *check;
     unsigned long flags;
@@ -1179,8 +1179,19 @@ int hsan_lsw_ifc_commit(u16 index, const u32 control[7],
         ret = -EUCLEAN;
         goto out;
     }
+    /* OEM dynamic ifc_write encodes/publishes both action halves before
+     * submitting the key. Factory helper @0x58c uses the reverse order
+     * Keep the entire native transaction under the same ownership lock
+     */
+    issued = true;
+    if (dynamic) {
+        for (j = 0; j < 2; j++)
+            for (i = 4; i > 0; i--)
+                writel(data[j * 4 + i - 1],
+                       bank->regs + table_offset + (j * 4 + i - 1) * 4U);
+        wmb();
+    }
     for (i = 0; i < ARRAY_SIZE(hsan_ifc_param_offsets); i++) {
-        issued = true;
         writel(control[i], bank->regs + hsan_ifc_param_offsets[i]);
     }
     command = (status & ~0xc00001ffU) | 0xc0000000U | index;
@@ -1201,10 +1212,11 @@ int hsan_lsw_ifc_commit(u16 index, const u32 control[7],
         goto out;
     }
     /* hi_lsw_write_tab128 writes MSW first; each half is 16 bytes. */
-    for (j = 0; j < 2; j++)
-        for (i = 4; i > 0; i--)
-            writel(data[j * 4 + i - 1],
-                   bank->regs + table_offset + (j * 4 + i - 1) * 4U);
+    if (!dynamic)
+        for (j = 0; j < 2; j++)
+            for (i = 4; i > 0; i--)
+                writel(data[j * 4 + i - 1],
+                       bank->regs + table_offset + (j * 4 + i - 1) * 4U);
     wmb();
     /* OEM hi_lsw_read_tab128 @0x1fc reads the same 128-bit MMIO
      * window in low-to-high word order. A mismatch is a hard fault:
@@ -1222,7 +1234,7 @@ int hsan_lsw_ifc_commit(u16 index, const u32 control[7],
 out:
     if (issued) {
         /* A successful row commit is also an irreversible command. Keep
-         * this CSR owner loaded from the FIRST parameter write onward,
+         * this CSR owner loaded from the FIRST hardware write onward,
          * including between the 12 OEM default rows. The PFE owner may
          * explicitly quarantine the engine after the full batch; pinning
          * alone never asserts that any IFC forwarding is operational.
@@ -1238,7 +1250,19 @@ out:
         hsan_lsw_ifc_pin_module();
     return ret;
 }
+int hsan_lsw_ifc_commit(u16 index, const u32 control[7],
+                        const u32 data[8], u32 *last_status)
+{
+    return hsan_lsw_ifc_commit_ordered(index, control, data, last_status, false);
+}
 EXPORT_SYMBOL_GPL(hsan_lsw_ifc_commit);
+
+int hsan_lsw_ifc_dynamic_commit(u16 index, const u32 control[7],
+                        const u32 data[8], u32 *last_status)
+{
+    return hsan_lsw_ifc_commit_ordered(index, control, data, last_status, true);
+}
+EXPORT_SYMBOL_GPL(hsan_lsw_ifc_dynamic_commit);
 
 /* Exact read-only 32-byte IFC MMIO window, under the same bank lock as
  * IFC's irreversible dual-row writes. An unchanged window does NOT prove
