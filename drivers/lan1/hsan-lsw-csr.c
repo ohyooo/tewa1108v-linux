@@ -147,6 +147,8 @@ static bool hsan_lsw_napt_poisoned;
 static bool hsan_lsw_napt_partition_complete;
 static bool hsan_lsw_napt_gro_attempted;
 static u32 hsan_lsw_napt_gro_id = U32_MAX;
+static bool hsan_lsw_napt_flow_uncertain;
+static bool hsan_lsw_napt_gro_removed;
 static atomic_t hsan_lsw_napt_module_pinned = ATOMIC_INIT(0);
 static bool hsan_lsw_napt_private_span(u32 address, u32 bytes)
 {
@@ -162,7 +164,9 @@ static bool hsan_lsw_napt_private_span(u32 address, u32 bytes)
     last = first + bytes - 1;
     if ((first >> 24) != 3 || (last >> 24) != 3)
         return false;
-    if ((first <= 0x03000117U && last >= 0x0300008cU) ||
+    if ((first <= 0x0300012fU && last >= 0x0300008cU) ||
+        (first <= 0x03000183U && last >= 0x03000180U) ||
+        (first <= 0x03000297U && last >= 0x03000280U) ||
         (first <= 0x030002efU && last >= 0x030002d4U))
         return true;
     for (i = 0; i < ARRAY_SIZE(private_csrs); i++)
@@ -1545,7 +1549,6 @@ EXPORT_SYMBOL_GPL(hsan_lsw_napt_gro_v4_commit);
  */
 int hsan_lsw_napt_gro_v4_snapshot(u32 hardware_id, u32 *status, u32 *data)
 {
-    static bool uncertain;
     unsigned int i;
     int ret;
 
@@ -1564,7 +1567,7 @@ int hsan_lsw_napt_gro_v4_snapshot(u32 hardware_id, u32 *status, u32 *data)
         ret = -EINVAL;
         goto out;
     }
-    if (uncertain) {
+    if (hsan_lsw_napt_flow_uncertain) {
         ret = -EUCLEAN;
         goto out;
     }
@@ -1578,7 +1581,7 @@ int hsan_lsw_napt_gro_v4_snapshot(u32 hardware_id, u32 *status, u32 *data)
         ret = -EBUSY;
         goto out;
     }
-    uncertain = true;
+    hsan_lsw_napt_flow_uncertain = true;
     ret = hsan_lsw_write_raw(0x030000d4U, BIT(31) | hardware_id);
     if (ret)
         goto out;
@@ -1594,7 +1597,7 @@ int hsan_lsw_napt_gro_v4_snapshot(u32 hardware_id, u32 *status, u32 *data)
         ret = -ETIMEDOUT;
         goto out;
     }
-    uncertain = false;
+    hsan_lsw_napt_flow_uncertain = false;
     if (*status & BIT(29)) {
         ret = -ENOENT;
         goto out;
@@ -1605,6 +1608,86 @@ out:
     return ret;
 }
 EXPORT_SYMBOL_GPL(hsan_lsw_napt_gro_v4_snapshot);
+
+/* OEM IPv4 delete @0x5910..0x5ad0, for this boot's sole owned flow
+ * Command completion removes a flow, not DMA ownership or GRO buffers
+ * Neither the one-shot add latch nor any resource quarantine is cleared
+ */
+int hsan_lsw_napt_gro_v4_remove(u32 hardware_id)
+{
+    static const u32 clear_csrs[] = {
+        0x03000104, 0x03000108, 0x0300010c, 0x03000110,
+        0x03000114, 0x03000118, 0x0300011c, 0x03000120,
+        0x03000124, 0x03000128, 0x0300012c, 0x03000180,
+        0x03000280, 0x03000284, 0x03000288, 0x0300028c,
+        0x03000290, 0x03000294,
+    };
+    unsigned int i;
+    u32 status;
+    int ret;
+
+    if (hardware_id > GENMASK(20, 0))
+        return -EINVAL;
+    if (!READ_ONCE(experimental_allow_lsw_writes))
+        return -EACCES;
+    mutex_lock(&hsan_lsw_napt_lock);
+    if (!hsan_lsw_napt_partition_complete ||
+        hardware_id != hsan_lsw_napt_gro_id) {
+        ret = -EHOSTDOWN;
+        goto out;
+    }
+    if (hsan_lsw_napt_flow_uncertain) {
+        ret = -EUCLEAN;
+        goto out;
+    }
+    if (hsan_lsw_napt_gro_removed) {
+        ret = -EALREADY;
+        goto out;
+    }
+    ret = hsan_lsw_check_span(0x030000d4, 4, false);
+    for (i = 0; !ret && i < ARRAY_SIZE(clear_csrs); i++)
+        ret = hsan_lsw_check_span(clear_csrs[i], 4, false);
+    if (ret)
+        goto out;
+    ret = hsan_lsw_read_raw(0x030000d4, &status);
+    if (ret)
+        goto out;
+    if (status & BIT(31)) {
+        ret = -EBUSY;
+        goto out;
+    }
+    hsan_lsw_napt_flow_uncertain = true;
+    for (i = 0; i < ARRAY_SIZE(clear_csrs); i++) {
+        ret = hsan_lsw_write_raw(clear_csrs[i], 0);
+        if (ret)
+            goto out;
+    }
+    ret = hsan_lsw_write_raw(0x030000d4, BIT(31) | BIT(30) | hardware_id);
+    if (ret)
+        goto out;
+    for (i = 0; i < HSAN_NAPT_POLL_LIMIT; i++) {
+        ret = hsan_lsw_read_raw(0x030000d4, &status);
+        if (ret)
+            goto out;
+        if (!(status & BIT(31)))
+            break;
+        usleep_range(100, 200);
+    }
+    if (i == HSAN_NAPT_POLL_LIMIT) {
+        ret = -ETIMEDOUT;
+        goto out;
+    }
+    hsan_lsw_napt_flow_uncertain = false;
+    if (status & BIT(29)) {
+        ret = -ENOENT;
+        goto out;
+    }
+    hsan_lsw_napt_gro_removed = true;
+out:
+    mutex_unlock(&hsan_lsw_napt_lock);
+    return ret;
+}
+EXPORT_SYMBOL_GPL(hsan_lsw_napt_gro_v4_remove);
 
 
 

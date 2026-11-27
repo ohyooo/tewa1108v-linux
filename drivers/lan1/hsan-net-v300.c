@@ -5835,6 +5835,35 @@ static const struct of_device_id hsan_of_match[] = {
 	{ .compatible = "hsan,pie" }, { }
 };
 MODULE_DEVICE_TABLE(of, hsan_of_match);
+static ssize_t rx_queue_packets_show(struct device *dev,
+                                    struct device_attribute *attr, char *buf)
+{
+    struct net_device *ndev = dev_get_drvdata(dev);
+    struct hsan_v300 *p;
+    u64 packets[HSAN_OEM_RX_CHANNELS];
+    unsigned long flags;
+    unsigned int ch, channels;
+    ssize_t length = 0;
+
+    if (!ndev)
+        return -ENODATA;
+    p = netdev_priv(ndev);
+    spin_lock_irqsave(&p->tx_lock, flags);
+    channels = p->rx_channels;
+    for (ch = 0; ch < channels; ch++)
+        packets[ch] = p->rxq[ch].packets;
+    spin_unlock_irqrestore(&p->tx_lock, flags);
+    for (ch = 0; ch < channels; ch++)
+        length += sysfs_emit_at(buf, length, "rx%u=%llu\n", ch,
+                                (unsigned long long)packets[ch]);
+    return length;
+}
+static DEVICE_ATTR_RO(rx_queue_packets);
+static struct attribute *hsan_rx_attrs[] = {
+    &dev_attr_rx_queue_packets.attr,
+    NULL,
+};
+ATTRIBUTE_GROUPS(hsan_rx);
 static struct platform_driver hsan_driver = {
 	.probe = hsan_probe,
 	.remove = hsan_remove,
@@ -5842,7 +5871,8 @@ static struct platform_driver hsan_driver = {
      * Does not veto physical hot-remove, DT overlay removal or system reset.
      */
     .driver = {.name = "hsan-net-v300", .of_match_table = hsan_of_match,
-               .suppress_bind_attrs = true, .pm = &hsan_v300_pm_ops},
+               .suppress_bind_attrs = true, .pm = &hsan_v300_pm_ops,
+               .dev_groups = hsan_rx_groups},
 };
 module_platform_driver(hsan_driver);
 MODULE_LICENSE("GPL");

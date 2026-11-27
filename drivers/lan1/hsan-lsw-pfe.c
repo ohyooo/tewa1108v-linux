@@ -1275,6 +1275,23 @@ static ssize_t gro_flow_state_show(struct device *dev,
                        ret, state->gro_flow_hardware_id, status, data, data & 7);
 }
 static DEVICE_ATTR_RO(gro_flow_state);
+static ssize_t gro_flow_remove_store(struct device *dev,
+                                    struct device_attribute *attr,
+                                    const char *buf, size_t count)
+{
+    struct hsan_pfe_state *state = dev_get_drvdata(dev);
+    int ret;
+
+    if (!sysfs_streq(buf, "1"))
+        return -EINVAL;
+    if (!state || !state->gro_flow_installed)
+        return -ENODATA;
+    ret = hsan_pfe_fam_fence_guard(state, 13);
+    if (!ret)
+        ret = hsan_lsw_napt_gro_v4_remove(state->gro_flow_hardware_id);
+    return ret ? ret : count;
+}
+static DEVICE_ATTR_WO(gro_flow_remove);
 static ssize_t bootstrap_ready_show(struct device *dev,
                                    struct device_attribute *attr, char *buf)
 {
@@ -1320,6 +1337,7 @@ static DEVICE_ATTR_RO(ifc_hit_counter);
 static struct attribute *hsan_pfe_attrs[] = {
     &dev_attr_ifc_hit_counter.attr,
     &dev_attr_gro_flow_state.attr,
+    &dev_attr_gro_flow_remove.attr,
     &dev_attr_bootstrap_ready.attr,
     &dev_attr_ifc_lan1_qos_state.attr,
     NULL,

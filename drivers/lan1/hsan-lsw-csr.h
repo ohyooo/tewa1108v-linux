@@ -154,6 +154,7 @@ int hsan_lsw_nhp_commit(struct device *owner, u32 row,
                         const u32 before[4], const u32 after[4]);
 int hsan_lsw_napt_gro_v4_commit(const u32 words[19], u32 *hardware_id);
 int hsan_lsw_napt_gro_v4_snapshot(u32 hardware_id, u32 *status, u32 *data);
+int hsan_lsw_napt_gro_v4_remove(u32 hardware_id);
 int hsan_lsw_check_span(u32 logical_address, u32 bytes, bool for_write);
 /* Stage24: software-only table metadata owner. These are NOT hardware
  * hi_tab_mgr_create() and must never be used as a pipeline-ready signal.
