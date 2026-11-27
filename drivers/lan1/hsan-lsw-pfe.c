@@ -104,8 +104,18 @@ static_assert(ARRAY_SIZE(hsan_pfe_mcc_tables) == HSAN_PFE_MCC_TABLE_COUNT);
  * IFC commands use a separate bank0 MMIO transport, not this shadow.
  */
 #define HSAN_PFE_IFC_TABLE_ID 0x11bU
-#define HSAN_PFE_IFC_TABLE_ROWS 500U
-#define HSAN_PFE_IFC_TABLE_WIDTH 20U
+#define HSAN_PFE_IFC_TABLE_ROWS 502U
+#define HSAN_PFE_IFC_TABLE_WIDTH 32U
+/* OEM hi_capa_ifc_add type1/subtype3, port10, MAC02:00:00:00:00:01,
+ * action0; omit the optional VLAN key, retaining the original label4
+ * Then original ifc_write at the already owned default row10
+ * This diagnostic substitutes one command, never adds or replays one
+ */
+static const u32 hsan_ifc_lan1_mac_row[15] = {
+    0x00000001,0x00000200,0x00000101,0x04000000,
+    0x0013480a,0x08000000,0,
+    0,0,0,0,0,0,0,0,
+};
 #define HSAN_PFE_IFC_DEFAULT_ROWS 11U
 #define HSAN_PFE_IFC_HASH_RESERVED_ROWS 1U
 #define HSAN_PFE_IFC_CONTROL_WORDS 7U
@@ -299,6 +309,7 @@ struct hsan_pfe_state {
     bool ifc_observed_image_verified;
     u32 ifc_observed_image_crc32;
     bool ifc_late_window_drift_latched;
+    bool ifc_lan1_mac_requested;
     bool fam_fence_abort_latched;
     u32 fam_fence_abort_step;
     u32 ofc_dynamic_entries;
@@ -433,6 +444,9 @@ static void hsan_pfe_observe_ifc_late_window(struct hsan_pfe_state *p,
     for (i = 0; i < HSAN_PFE_IFC_DEFAULT_ROWS; i++) {
         const u32 *expected = observed +
             i * HSAN_PFE_IFC_OBSERVED_WORDS + HSAN_PFE_IFC_CONTROL_WORDS;
+
+        if (p->ifc_lan1_mac_requested && i == 9)
+            expected = hsan_ifc_lan1_mac_row + HSAN_PFE_IFC_CONTROL_WORDS;
 
         ret = hsan_lsw_ifc_read_window(i + 1, actual);
         if (ret)
@@ -2294,6 +2308,36 @@ static int hsan_pfe_preflight_ifc(struct platform_device *pdev,
                     ARRAY_SIZE(words));
         if (ret)
             return ret;
+        if (of_property_read_bool(dev->of_node,
+                                  "hsan,experimental-ifc-lan1-mac")) {
+            static const u8 mac[6] = {2,0,0,0,0,1};
+            static const u32 original_row10[15] = {
+                0,0x8808,0x900,0xffff0000,0x13380a,0,0,
+                0x400,0,0,0,0,0,0,0,
+            };
+            struct device_node *pie;
+            const u8 *address;
+            int bytes;
+            bool matches;
+
+            if (!of_find_property(dev->of_node,
+                   "hsan,experimental-gro-v4-tcp-flow", NULL) ||
+                !of_property_read_bool(dev->of_node,
+                   "hsan,experimental-ifc-cpu-path") ||
+                memcmp(words + 9 * HSAN_PFE_IFC_OBSERVED_WORDS,
+                       original_row10, sizeof(original_row10)))
+                return -EINVAL;
+            pie = of_find_node_by_path("/pie@12080000");
+            if (!pie)
+                return -ENODEV;
+            address = of_get_property(pie, "local-mac-address", &bytes);
+            matches = address && bytes == sizeof(mac) &&
+                      !memcmp(address, mac, sizeof(mac));
+            of_node_put(pie);
+            if (!matches)
+                return -EINVAL;
+            state->ifc_lan1_mac_requested = true;
+        }
         for (i = 0; i < ARRAY_SIZE(words); i++)
             image[i] = cpu_to_le32(words[i]);
         digest = crc32_le(0, (u8 *)image, sizeof(image));
@@ -2410,7 +2454,10 @@ static int hsan_pfe_program_ifc_defaults(struct platform_device *pdev,
                  state->ifc_hash_observed_start);
     }
     for (i = 0; i < HSAN_PFE_IFC_DEFAULT_ROWS; i++) {
-        u32 *row = observed + i * HSAN_PFE_IFC_OBSERVED_WORDS;
+        const u32 *row = observed + i * HSAN_PFE_IFC_OBSERVED_WORDS;
+
+        if (state->ifc_lan1_mac_requested && i == 9)
+            row = hsan_ifc_lan1_mac_row;
 
         ret = hsan_pfe_fam_fence_guard(state, 100U + i);
         if (ret)
@@ -2430,6 +2477,8 @@ static int hsan_pfe_program_ifc_defaults(struct platform_device *pdev,
     ret = hsan_lsw_write_verify(0x00000118U, 0);
     if (ret)
         goto out;
+    if (state->ifc_lan1_mac_requested)
+        dev_warn(dev, "IFC owned row10 substituted with restricted LAN1 MAC diagnostic; forwarding not qualified\n");
     /* The CPU-visible two-half MMIO window was read back for every
      * row, but the IFC hardware table *activation* and forwarding-state
      * read/ACK protocol remain unqualified. Permanently quarantine the
