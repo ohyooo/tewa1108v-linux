@@ -99,12 +99,13 @@ static_assert(ARRAY_SIZE(hsan_pfe_mcc_tables) == HSAN_PFE_MCC_TABLE_COUNT);
  * recoverable from static DT alone; require an explicit observed value.
  * These are software-owned descriptors, NOT original HW callbacks.
  */
-/* OEM hi_pfe_ifc_init @0x830 allocates a 12-slot hash area from table
- * 0x103 and creates table 0x11b (500 rows, 20 bytes). Its 12 default
- * IFC commands use a separate bank0 MMIO transport, not this shadow.
+/* OEM hi_pfe_ifc_init @0x830 allocates one 12-byte hash record from
+ * table 0x103 and creates table 0x11b with 500 rows and a 20-byte key
+ * The complete software record is 32 bytes, as the OEM runtime dump shows
+ * Its 11 default IFC commands use a separate bank0 MMIO transport
  */
 #define HSAN_PFE_IFC_TABLE_ID 0x11bU
-#define HSAN_PFE_IFC_TABLE_ROWS 502U
+#define HSAN_PFE_IFC_TABLE_ROWS 500U
 #define HSAN_PFE_IFC_TABLE_WIDTH 32U
 /* OEM hi_capa_ifc_add type1/subtype3, port10, MAC02:00:00:00:00:01,
  * action0; omit the optional VLAN key, retaining the original label4
