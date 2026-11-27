@@ -113,11 +113,11 @@ static_assert(ARRAY_SIZE(hsan_pfe_mcc_tables) == HSAN_PFE_MCC_TABLE_COUNT);
  * Keep this software allocation separate from the 11 factory rows
  */
 static const u8 hsan_ifc_lan1_qos_candidate[32] = {
-    [9] = 4, [15] = 0x40, [21] = 0xc0, [22] = 1,
+    [9] = 4, [15] = 0x40, [21] = 0xc0, [22] = 1, [28] = 1,
 };
 static const u32 hsan_ifc_lan1_qos_row[15] = {
     0,0,0,0x04000000,0x0003080c,0x08000000,0,
-    0,0x00700000,0,0,0,0,0,0,
+    0,0x00702000,0,0,0,0,0,0,
 };
 /* OEM hi_capa_ifc_add type1/subtype3, port10, MAC02:00:00:00:00:01,
  * action0; omit the optional VLAN key, retaining the original label4
@@ -325,6 +325,10 @@ struct hsan_pfe_state {
     bool ifc_lan1_mac_requested;
     bool ifc_lan1_qos_requested;
     bool ifc_lan1_qos_reserved;
+    bool hit_counter_registered;
+    bool hit_counter_reserved;
+    bool hit_counter_initialized;
+    u32 hit_counter_slot;
     bool ifc_lan1_qos_committed;
     u32 ifc_lan1_qos_slot;
     bool fam_fence_abort_latched;
@@ -1291,7 +1295,30 @@ static ssize_t ifc_lan1_qos_state_show(struct device *dev,
         p->ifc_lan1_qos_committed, p->ifc_late_window_drift_latched);
 }
 static DEVICE_ATTR_RO(ifc_lan1_qos_state);
+static ssize_t ifc_hit_counter_show(struct device *dev,
+                                    struct device_attribute *attr, char *buf)
+{
+    struct hsan_pfe_state *state = dev_get_drvdata(dev);
+    u32 words[4];
+    u64 packets, bytes;
+    int ret;
+
+    if (!state || !state->hit_counter_initialized)
+        return -ENODATA;
+    ret = hsan_lsw_read_tab128(0x00060000, 1, words);
+    if (ret)
+        return ret;
+    /* Native-width, unlatched sample; no software wrap extension */
+    packets = words[0] | ((u64)(words[1] & 0xf) << 32);
+    bytes = (words[1] >> 4) | ((u64)(words[2] & 0xfffff) << 28);
+    return sysfs_emit(buf,
+        "counter=1 initialized=1 packets=%llu bytes=%llu raw=%08x,%08x,%08x,%08x\n",
+        (unsigned long long)packets, (unsigned long long)bytes,
+        words[0], words[1], words[2], words[3]);
+}
+static DEVICE_ATTR_RO(ifc_hit_counter);
 static struct attribute *hsan_pfe_attrs[] = {
+    &dev_attr_ifc_hit_counter.attr,
     &dev_attr_gro_flow_state.attr,
     &dev_attr_bootstrap_ready.attr,
     &dev_attr_ifc_lan1_qos_state.attr,
@@ -2251,6 +2278,83 @@ static int hsan_pfe_mirror_lan1_cpu(struct platform_device *pdev,
     return ret;
 }
 
+/* Boot-owned diagnostic counter: native table100 start1, 255x24B */
+static int hsan_pfe_prepare_hit_counter(struct platform_device *pdev,
+                                      struct hsan_pfe_state *state)
+{
+    u8 record[24] = {};
+    int ret;
+
+    ret = hsan_lsw_shadow_table_create(&pdev->dev, 0x100,
+            "ifc_hit_counter", 255, sizeof(record), 0x48);
+    if (ret)
+        return ret;
+    state->hit_counter_registered = true;
+    ret = hsan_lsw_shadow_table_alloc_range(&pdev->dev, 0x100,
+            1, 1, &state->hit_counter_slot);
+    if (ret)
+        return ret;
+    state->hit_counter_reserved = true;
+    if (state->hit_counter_slot)
+        return -EBUSY;
+    ret = hsan_lsw_shadow_table_write(&pdev->dev, 0x100, 0,
+            record, sizeof(record));
+    if (ret)
+        return ret;
+    ret = hsan_lsw_check_span(0x00060010, 16, true);
+    if (ret)
+        return ret;
+    return hsan_lsw_check_span(0x03040010, 16, true);
+}
+
+static int hsan_pfe_program_hit_counter(struct platform_device *pdev,
+                                      struct hsan_pfe_state *state)
+{
+    const u32 eqm[5] = {};
+    const u32 ifc[4] = {0, 0, 0x100000, 0};
+    const u32 napt[4] = {};
+    u8 record[24], expected[24] = {};
+    u32 status, words[4];
+    int ret;
+
+    if (!state->hit_counter_registered || !state->hit_counter_reserved ||
+        state->hit_counter_slot || state->hit_counter_initialized)
+        return -ENODATA;
+    ret = hsan_lsw_shadow_table_read(&pdev->dev, 0x100, 0,
+            record, sizeof(record));
+    if (ret)
+        return ret;
+    if (memcmp(record, expected, sizeof(record)))
+        return -ESTALE;
+    /* Native hi_tab_write_cnt first initializes EQM59, then IFC and NAPT
+     * An error remains irreversible under the existing IFC-attempted owner
+     */
+    ret = hsan_lsw_eqm_write_verify_table(0x59, 1, eqm, eqm, 5, &status);
+    if (ret)
+        return ret;
+    ret = hsan_lsw_write_tab128(0x00060000, 1, ifc);
+    if (ret)
+        return ret;
+    ret = hsan_lsw_write_tab128(0x03040000, 1, napt);
+    if (ret)
+        return ret;
+    ret = hsan_lsw_read_tab128(0x00060000, 1, words);
+    if (ret)
+        return ret;
+    /* Native read callback uses only the low 20 bits of word2
+     * Do not infer the meaning/readback value of write control bit20
+     */
+    if (words[0] || words[1] || (words[2] & 0xfffff))
+        return -EUCLEAN;
+    ret = hsan_lsw_read_tab128(0x03040000, 1, words);
+    if (ret)
+        return ret;
+    if (words[0] || words[1] || (words[2] & 0xff))
+        return -EUCLEAN;
+    state->hit_counter_initialized = true;
+    return 0;
+}
+
 /* IFC table manager software owner is separate from the OEM bank0
  * command engine. The module only publishes this shadow when registration
  * succeeds; deletion never pretends to undo hardware IFC writes.
@@ -2296,6 +2400,9 @@ static int hsan_pfe_prepare_ifc_shadow(struct platform_device *pdev,
             sizeof(hsan_ifc_lan1_qos_candidate));
     if (ret)
         return ret;
+    ret = hsan_pfe_prepare_hit_counter(pdev, state);
+    if (ret)
+        return ret;
     return hsan_lsw_check_span(0x00050000U +
             HSAN_PFE_IFC_DYNAMIC_FIRST * 32U, 32U, true);
 }
@@ -2307,6 +2414,21 @@ static void hsan_pfe_release_ifc_shadow(struct platform_device *pdev,
 
     if (!state->ifc_shadow_registered)
         return;
+    /* Only reversible software rollback reaches this cleanup */
+    if (state->hit_counter_registered) {
+        if (state->hit_counter_reserved) {
+            ret = hsan_lsw_shadow_table_release_range(&pdev->dev, 0x100, 0, 1);
+            if (ret)
+                dev_warn(&pdev->dev, "Counter shadow release failed: %d\n", ret);
+            else
+                state->hit_counter_reserved = false;
+        }
+        ret = hsan_lsw_shadow_table_delete(&pdev->dev, 0x100);
+        if (ret)
+            dev_warn(&pdev->dev, "Counter shadow delete failed: %d\n", ret);
+        else
+            state->hit_counter_registered = false;
+    }
     /* Called only during reversible software rollback, before HW writes */
     if (state->ifc_lan1_qos_reserved) {
         ret = hsan_lsw_shadow_table_release_range(&pdev->dev,
@@ -2623,6 +2745,12 @@ static int hsan_pfe_program_ifc_lan1_qos(struct platform_device *pdev,
         ret = -ESTALE;
         goto out;
     }
+    ret = hsan_pfe_fam_fence_guard(state, 113U);
+    if (ret)
+        goto out;
+    ret = hsan_pfe_program_hit_counter(pdev, state);
+    if (ret)
+        goto out;
     ret = hsan_pfe_fam_fence_guard(state, 112U);
     if (ret)
         goto out;
@@ -2633,7 +2761,7 @@ static int hsan_pfe_program_ifc_lan1_qos(struct platform_device *pdev,
     if (!ret) {
         state->ifc_lan1_qos_committed = true;
         dev_warn(&pdev->dev,
-            "IFC allocated LAN1 label0 PQ1 row submitted; forwarding unqualified\n");
+            "IFC allocated LAN1 QoS row with owned counter1 submitted; forwarding unqualified\n");
     }
 out:
     quarantine_ret = hsan_lsw_ifc_quarantine();

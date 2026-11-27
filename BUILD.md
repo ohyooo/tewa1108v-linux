@@ -105,4 +105,4 @@ UDP 验证可用 `-Rounds` 指定回传次数，范围 1..20000，默认 1000
 
 `--ifc-lan1-mac` 配合 `--gro-flow` 使用通用测试 MAC，仅替换已归属的默认 IFC 行用于入口诊断，默认关闭
 
-`--ifc-lan1-qos` 配合 `--gro-flow` 安装本次启动预留的 LAN1 队列诊断规则，与 `--ifc-lan1-mac` 互斥，默认关闭
+`--ifc-lan1-qos` 配合 `--gro-flow` 安装本次启动预留的 LAN1 队列诊断规则，可从 PFE 的只读 `ifc_hit_counter` 观察计数，与 `--ifc-lan1-mac` 互斥，默认关闭
