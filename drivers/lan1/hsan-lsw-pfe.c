@@ -3154,6 +3154,40 @@ static int hsan_pfe_port4_opp(struct platform_device *pdev, bool submit)
     return 0;
 }
 
+/* hi_pfe_opp_init -> helper @0x301c: port5, priorities0..7,
+ * queue IDs41..48. GRO NHP type5 selects this logical output port.
+ * This maps only an already owned DP queue; it does not qualify GRO RX.
+ */
+static int hsan_pfe_port5_gro_opp(struct platform_device *pdev, bool submit)
+{
+    struct hsan_dp_queue_snapshot q;
+    unsigned int priority;
+    int ret;
+
+    if (!of_find_property(pdev->dev.of_node,
+                         "hsan,experimental-gro-v4-tcp-flow", NULL))
+        return 0;
+    if (!of_property_read_bool(pdev->dev.of_node,
+                              "hsan,experimental-program-cpu-opp"))
+        return -EPERM;
+    ret = hsan_lsw_dp_get_queue(5, &q);
+    if (ret)
+        return ret;
+    if (!hsan_pfe_dp_lan1_handoff(&q) || q.count != 8 || q.qid != 41)
+        return -ENODATA;
+    ret = hsan_lsw_check_span(0x060428a0, 8 * sizeof(u32), true);
+    if (ret || !submit)
+        return ret;
+    for (priority = 0; priority < 8; priority++) {
+        ret = hsan_lsw_write_verify(0x060428a0 + priority * 4,
+                                   BIT(8) | (q.qid + priority));
+        if (ret)
+            return ret;
+    }
+    dev_info(&pdev->dev, "OEM GRO port5 qid41..48 OPP map verified; RX format unqualified\n");
+    return 0;
+}
+
 static int hsan_pfe_port33_opp(struct platform_device *pdev, bool submit)
 {
     struct hsan_dp_queue_snapshot q;
@@ -3335,6 +3369,9 @@ static int hsan_pfe_preflight_hw_plan(struct platform_device *pdev,
             return ret;
     }
     ret = hsan_pfe_port4_opp(pdev, false);
+    if (ret)
+        return ret;
+    ret = hsan_pfe_port5_gro_opp(pdev, false);
     if (ret)
         return ret;
     ret = hsan_pfe_port33_opp(pdev, false);
@@ -3598,6 +3635,9 @@ static int hsan_pfe_probe_locked(struct platform_device *pdev)
     state->lan1_opp_verified = of_property_read_bool(pdev->dev.of_node,
                                   "hsan,experimental-program-lan1-opp");
     ret = hsan_pfe_port4_opp(pdev, true);
+    if (ret)
+        goto rollback;
+    ret = hsan_pfe_port5_gro_opp(pdev, true);
     if (ret)
         goto rollback;
     ret = hsan_pfe_port33_opp(pdev, true);
