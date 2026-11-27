@@ -1936,9 +1936,14 @@ static int hsan_dp_boot_reset(struct platform_device *pdev,
 		return -EALREADY;
 	state->mmio_attempted = true;
 	hsan_dp_pin_hw_lifetime();
-	ret = reset_control_bulk_deassert(ARRAY_SIZE(names), resets);
-	if (ret)
-		return ret;
+	/* OEM reset_control_array_deassert walks DT order. The bulk API
+	 * releases in reverse order, which is different for these four lines.
+	 */
+	for (i = 0; i < ARRAY_SIZE(names); i++) {
+		ret = reset_control_deassert(resets[i].rstc);
+		if (ret)
+			return ret;
+	}
 	ret = reset_control_bulk_assert(ARRAY_SIZE(names), resets);
 	if (ret)
 		return ret;
@@ -1947,9 +1952,11 @@ static int hsan_dp_boot_reset(struct platform_device *pdev,
 		if (ret != 1)
 			return ret < 0 ? ret : -EIO;
 	}
-	ret = reset_control_bulk_deassert(ARRAY_SIZE(names), resets);
-	if (ret)
-		return ret;
+	for (i = 0; i < ARRAY_SIZE(names); i++) {
+		ret = reset_control_deassert(resets[i].rstc);
+		if (ret)
+			return ret;
+	}
 	for (i = 0; i < ARRAY_SIZE(names); i++) {
 		ret = reset_control_status(resets[i].rstc);
 		if (ret)
