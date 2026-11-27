@@ -18,6 +18,10 @@
 #include <linux/dma-mapping.h>
 #include <linux/dma-map-ops.h>
 #include <linux/etherdevice.h>
+#include <linux/ip.h>
+#include <linux/tcp.h>
+#include <net/checksum.h>
+#include <net/ip.h>
 #include <linux/ethtool.h>
 #include <linux/interrupt.h>
 #include <linux/io.h>
@@ -1162,6 +1166,38 @@ static void hsan_rx_account(struct hsan_v300_rx_queue *q, bool delivered,
  * private skbs are discarded. This is a partial OEM batching port, not
  * proof of FAM HW STOP ACK or equivalence to the 8-channel vendor queues.
  */
+/* The captured hardware aggregate is a complete, untagged IPv4/TCP
+ * datagram with recomputed IP length and IP/TCP checksums. Admit only the
+ * diagnostic flow and observed fixed header format. Leave checksum work
+ * enabled for the stack and do not invent an MSS or GSO segment count.
+ * This skb is CPU-owned; validation never accesses a live DMA mapping.
+ */
+static bool hsan_gro_v4_tcp_valid(const struct sk_buff *skb)
+{
+    const struct iphdr *ip;
+    const struct tcphdr *tcp;
+    unsigned int length;
+
+    if (skb->len <= ETH_FRAME_LEN || skb->len > HSAN_GRO_CAPTURE_BYTES ||
+        get_unaligned_be16(skb->data + 12) != ETH_P_IP)
+        return false;
+    ip = (const struct iphdr *)(skb->data + ETH_HLEN);
+    if (ip->version != 4 || ip->ihl != 5 || ip->protocol != IPPROTO_TCP ||
+        ntohs(ip->tot_len) != skb->len - ETH_HLEN ||
+        (ip->frag_off & htons(IP_MF | IP_OFFSET)) ||
+        ip->saddr != htonl(0xc0a8000a) || ip->daddr != htonl(0xc0a80001) ||
+        ip_fast_csum(ip, 5))
+        return false;
+    length = ntohs(ip->tot_len) - sizeof(*ip);
+    tcp = (const struct tcphdr *)(ip + 1);
+    if (tcp->doff != 5 || tcp->source != htons(18086) ||
+        tcp->dest != htons(18087) || tcp->syn || tcp->fin ||
+        tcp->rst || tcp->urg)
+        return false;
+    return !csum_tcpudp_magic(ip->saddr, ip->daddr, length, IPPROTO_TCP,
+                             csum_partial(tcp, length, 0));
+}
+
 static bool hsan_rx_flush_kick_batch(struct hsan_v300_rx_queue *q,
                                      struct napi_struct *napi,
                                      struct sk_buff **pkts,
@@ -1255,6 +1291,12 @@ static bool hsan_rx_flush_kick_batch(struct hsan_v300_rx_queue *q,
             !hsan_lsw_dp_fam_cpu_fenced()) {
             unsigned int len = skb->len;
 
+            if (q->channel >= HSAN_NET_RX_CHANNELS && len > ETH_FRAME_LEN &&
+                (!p->gro_capture || !hsan_gro_v4_tcp_valid(skb))) {
+                dev_kfree_skb_any(skb);
+                hsan_rx_account(q, false, 0, true, false);
+                continue;
+            }
             skb_record_rx_queue(skb, q->channel);
             skb->protocol = eth_type_trans(skb, p->ndev);
             napi_gro_receive(napi, skb);
@@ -1356,11 +1398,11 @@ static int hsan_napi_poll(struct napi_struct *napi, int budget)
          * PIE queue ID. This netdev owns port10 only. The original API
          * falls back to a port's default slot for unknown subports, so
          * subport alone is not a reason to reject a normal LAN frame.
-         * Hardware aggregates require their own GRO delivery path; do
-         * not feed them to eth_type_trans as ordinary Ethernet frames.
+         * Large hardware aggregates require the bounded diagnostic
+         * format validator before any upper-stack handoff.
          */
         if (metadata.port != HSAN_LAN1_PORT || metadata.vendor_aux ||
-            (p->gro_capture && q->channel >= HSAN_NET_RX_CHANNELS &&
+            (!p->gro_capture && q->channel >= HSAN_NET_RX_CHANNELS &&
              len > ETH_FRAME_LEN)) {
             hsan_rx_account(q, false, 0, false, false);
         } else if (len < ETH_HLEN) {
