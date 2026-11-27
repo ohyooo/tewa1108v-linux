@@ -20,6 +20,18 @@ static long syscall5(long nr, long a, long b, long c, long d, long e)
 	syscall5(n, (long)(a), (long)(b), (long)(c), (long)(d), (long)(e))
 #define PRINT(s) ((void)CALL(4, 1, s, sizeof(s) - 1, 0, 0))
 
+static void print_hex(const char *label, unsigned label_bytes, unsigned value)
+{
+	static const char digits[] = "0123456789abcdef";
+	char text[] = "0x00000000\n";
+
+	for (unsigned i = 0; i < 8; i++)
+		text[2 + i] = digits[(value >> (28 - i * 4)) & 15];
+	(void)CALL(4, 1, label, label_bytes, 0, 0);
+	(void)CALL(4, 1, text, sizeof(text) - 1, 0, 0);
+}
+#define PRINT_HEX(label, value) print_hex(label, sizeof(label) - 1, (unsigned)(value))
+
 static unsigned char sent[8192], received[8193];
 static const unsigned sizes[] = {32, 1472, 4096, 8192};
 static const struct {
@@ -53,6 +65,7 @@ __attribute__((noreturn)) void _start(void)
 	for (unsigned seq = 0; seq < rounds; seq++) {
 		unsigned size = sizes[seq & 3];
 		struct { int fd; short events, revents; } event = {(int)fd, 1, 0};
+		long poll_rc;
 		failed_seq = seq;
 
 		for (unsigned i = 0; i < size; i++)
@@ -63,8 +76,19 @@ __attribute__((noreturn)) void _start(void)
 			PRINT("UDP_SEND_FAILED\n");
 			goto close;
 		}
-		if (CALL(168, &event, 1, 2000, 0, 0) != 1 || !(event.revents & 1)) {
-			PRINT("UDP_REPLY_TIMEOUT\n");
+		poll_rc = CALL(168, &event, 1, 2000, 0, 0);
+		if (poll_rc != 1 || !(event.revents & 1)) {
+			unsigned socket_error = 0, option_bytes = sizeof(socket_error);
+			long option_rc = CALL(295, fd, 1, 4, &socket_error, &option_bytes);
+
+			if (!poll_rc)
+				PRINT("UDP_REPLY_TIMEOUT\n");
+			else
+				PRINT("UDP_REPLY_POLL_FAILED\n");
+			PRINT_HEX("UDP_POLL_RC=", poll_rc);
+			PRINT_HEX("UDP_POLL_REVENTS=", event.revents);
+			PRINT_HEX("UDP_SOCKET_ERROR_RC=", option_rc);
+			PRINT_HEX("UDP_SOCKET_ERROR=", socket_error);
 			goto close;
 		}
 		if (CALL(3, fd, received, sizeof(received), 0, 0) != (long)size) {
