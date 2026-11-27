@@ -1,6 +1,5 @@
 """Offline OEM A32 execution trace; imported APIs are explicit models, not board evidence."""
 import argparse
-import hashlib
 import json
 import struct
 from collections import Counter
@@ -126,7 +125,7 @@ def trace(path, hash_start):
     uc.emu_start(entry, sentinel + 4, count=1000000)
     if uc.reg_read(UC_ARM_REG_PC) != sentinel:
         raise RuntimeError('OEM init did not return normally')
-    return {'source_sha256': hashlib.sha256(path.read_bytes()).hexdigest(),
+    return {
             'scope': 'OFFLINE_EMULATED_OEM_INIT_NOT_BOARD_OBSERVATION',
             'models': {'hash_allocation_start': hash_start, 'initial_registers': 0,
                        'IFC_busy_clears': True, 'IFC_error_bit': False},
@@ -140,7 +139,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--module', type=Path, required=True)
     parser.add_argument('--output', type=Path, required=True)
-    parser.add_argument('--hash-start', type=int, default=0)
+    parser.add_argument('--hash-start', type=int, default=1)
     args = parser.parse_args()
     result = trace(args.module, args.hash_start)
     args.output.write_text(json.dumps(result, indent=2) + '\n', encoding='utf-8')

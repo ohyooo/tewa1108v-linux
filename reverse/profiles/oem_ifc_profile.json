@@ -1,8 +1,6 @@
 {
-  "scope": "OFFLINE_OEM_A32_EXECUTION_TRACE_NOT_BOARD_OBSERVATION",
-  "oem_module_sha256": "7591ef5077c540b40f60b4bd5b30620775ab025c4389e353f0f5a1e261e1804e",
-  "trace_sha256": "55cc3d8dd58cadac9b3e80a65a7b4e2f54601c4ae8ce2a12b93b8959abf93806",
-  "hash_allocation_start": 0,
+  "scope": "OFFLINE_OEM_A32_INIT_WITH_ORIGINAL_TAG_ALLOCATOR_ID",
+  "hash_allocation_start": 1,
   "hash_reserved_rows": 1,
   "rule_indices": [
     1,
@@ -69,7 +67,7 @@
       1255427,
       0,
       0,
-      8448,
+      8449,
       0,
       0,
       0,
@@ -86,7 +84,7 @@
       1255428,
       0,
       0,
-      8448,
+      8449,
       0,
       0,
       0,
@@ -103,7 +101,7 @@
       1255429,
       0,
       0,
-      8448,
+      8449,
       0,
       0,
       0,
@@ -120,7 +118,7 @@
       1255430,
       0,
       0,
-      8448,
+      8449,
       0,
       0,
       0,
@@ -137,7 +135,7 @@
       1251335,
       0,
       0,
-      7424,
+      7425,
       0,
       0,
       0,
@@ -154,7 +152,7 @@
       1251336,
       0,
       0,
-      7424,
+      7425,
       0,
       0,
       0,
@@ -171,7 +169,7 @@
       1247241,
       0,
       0,
-      7424,
+      7425,
       0,
       0,
       128,
@@ -215,22 +213,12 @@
       0
     ]
   ],
-  "linux_crc32_le_seed0": "f0c3f36d",
-  "final_register_write": [
-    280,
-    0
-  ],
-  "models": {
-    "hash_allocation_start": 0,
-    "initial_registers": 0,
-    "IFC_busy_clears": true,
-    "IFC_error_bit": false
-  },
+  "linux_crc32_le_seed0": "0xa414b4c3",
   "hash_allocation_data_bytes": 12,
   "hash_allocation_data_hex": "000000000000000008000000",
   "tag_callback_image": {
     "base": 184893440,
-    "row": 0,
+    "row": 1,
     "words": [
       0,
       49152,
@@ -238,6 +226,5 @@
       0
     ]
   },
-  "allocator_callback": "OEM tag_write executed; allocator index selection modeled",
-  "original_working_trace_sha256": "a373aa3d537cd75b89d3b9d9ebd885f29755df17131d5ce62e297966dd3f8593"
+  "allocator_callback": "OEM tag_write executed; tag ID1 obtained from original table manager geometry with callback side effects modeled"
 }

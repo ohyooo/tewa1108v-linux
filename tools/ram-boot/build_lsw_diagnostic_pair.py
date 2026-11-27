@@ -270,7 +270,7 @@ def build(base_payload, artifacts, helper, diagnostic, output, fam_shadow=False,
         )
         rows = ifc_profile["rows"]
         if (ifc_profile["rule_indices"] != list(range(1, 12)) or
-                ifc_profile["hash_allocation_start"] != 0 or
+                ifc_profile["hash_allocation_start"] != 1 or
                 ifc_profile["hash_reserved_rows"] != 1 or
                 len(rows) != 11 or any(len(row) != 15 for row in rows)):
             raise ValueError("OEM IFC source trace or geometry mismatch")
@@ -281,7 +281,7 @@ def build(base_payload, artifacts, helper, diagnostic, output, fam_shadow=False,
         edits["/lsw_pfe"].update({
             "hsan,experimental-program-ifc-defaults": b"",
             "hsan,experimental-ifc-cpu-path": b"",
-            "hsan,observed-ifc-hash-allocation": struct.pack(">I", 0),
+            "hsan,observed-ifc-hash-allocation": struct.pack(">I", 1),
             "hsan,observed-ifc-default-words": struct.pack(">165I", *words),
             "hsan,observed-ifc-default-crc32": struct.pack(">I", crc),
         })

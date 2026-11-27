@@ -158,7 +158,19 @@ done
 report TEWA160_NETDEV_END
 # No experimental-dma-enable: exact Stage160 ndo_open returns -EACCES before
 # queues/DMA. Test that existing rejection once, without any traffic or down/up.
-if [ "$load_rc" -eq 0 ] && [ "$live" -eq 8 ] && [ "$owner_ok" -eq 1 ] && [ "$id" = 0x20669a22 ] && { [ ! -e "$DT/pie@12080000/hsan,experimental-dma-enable" ] || [ -e "$DT/pie@12080000/hsan,experimental-cpu-lan1-diagnostic" ]; }; then
+cpu_ready=1
+if [ -e "$DT/pie@12080000/hsan,experimental-cpu-lan1-diagnostic" ]; then
+    cpu_ready=0
+    for attempt in 1 2 3 4 5 6 7 8 9 10; do
+        if [ "$(cat /sys/bus/platform/devices/16100000.lsw_pfe/bootstrap_ready 2>/dev/null)" = 1 ]; then
+            cpu_ready=1
+            break
+        fi
+        sleep 1
+    done
+    report "TEWA160_PFE_BOOTSTRAP_READY=$cpu_ready"
+fi
+if [ "$cpu_ready" -eq 1 ] && [ "$load_rc" -eq 0 ] && [ "$live" -eq 8 ] && [ "$owner_ok" -eq 1 ] && [ "$id" = 0x20669a22 ] && { [ ! -e "$DT/pie@12080000/hsan,experimental-dma-enable" ] || [ -e "$DT/pie@12080000/hsan,experimental-cpu-lan1-diagnostic" ]; }; then
     /tewa/gate-test
     gate_rc=$?
     report "TEWA160_GATE_HELPER_EXIT=$gate_rc"

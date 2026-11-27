@@ -1221,8 +1221,15 @@ static ssize_t gro_flow_state_show(struct device *dev,
                        ret, state->gro_flow_hardware_id, status, data, data & 7);
 }
 static DEVICE_ATTR_RO(gro_flow_state);
+static ssize_t bootstrap_ready_show(struct device *dev,
+                                   struct device_attribute *attr, char *buf)
+{
+    return sysfs_emit(buf, "%u\n", hsan_lsw_pfe_cpu_bootstrap_ready());
+}
+static DEVICE_ATTR_RO(bootstrap_ready);
 static struct attribute *hsan_pfe_attrs[] = {
     &dev_attr_gro_flow_state.attr,
+    &dev_attr_bootstrap_ready.attr,
     NULL,
 };
 ATTRIBUTE_GROUPS(hsan_pfe);
@@ -2242,14 +2249,14 @@ static int hsan_pfe_preflight_ifc(struct platform_device *pdev,
             "hsan,observed-ifc-hash-allocation", &start);
     if (ret)
         return ret;
-    if (start > hsan_pfe_pub_tables[2].entries - HSAN_PFE_IFC_HASH_RESERVED_ROWS)
+    if (!start || start > hsan_pfe_pub_tables[2].entries)
         return -ERANGE;
     if (state->ifc_hash_reserved) {
         if (state->ifc_hash_observed_start != start)
             return -ESTALE;
     } else {
         ret = hsan_lsw_shadow_table_reserve_range(dev,
-                hsan_pfe_pub_tables[2].id, start,
+                hsan_pfe_pub_tables[2].id, start - 1,
                 HSAN_PFE_IFC_HASH_RESERVED_ROWS);
         if (ret)
             return ret;
@@ -3401,7 +3408,7 @@ rollback:
     }
     if (state->ifc_hash_reserved) {
         int hash_ret = hsan_lsw_shadow_table_release_range(&pdev->dev,
-                hsan_pfe_pub_tables[2].id, state->ifc_hash_observed_start,
+                hsan_pfe_pub_tables[2].id, state->ifc_hash_observed_start - 1,
                 HSAN_PFE_IFC_HASH_RESERVED_ROWS);
 
         if (hash_ret)
@@ -3470,7 +3477,7 @@ static void hsan_pfe_remove_locked(struct platform_device *pdev)
 
     if (state->ifc_hash_reserved) {
         int hash_ret = hsan_lsw_shadow_table_release_range(&pdev->dev,
-                hsan_pfe_pub_tables[2].id, state->ifc_hash_observed_start,
+                hsan_pfe_pub_tables[2].id, state->ifc_hash_observed_start - 1,
                 HSAN_PFE_IFC_HASH_RESERVED_ROWS);
 
         if (hash_ret)
