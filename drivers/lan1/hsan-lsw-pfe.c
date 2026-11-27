@@ -107,6 +107,18 @@ static_assert(ARRAY_SIZE(hsan_pfe_mcc_tables) == HSAN_PFE_MCC_TABLE_COUNT);
 #define HSAN_PFE_IFC_TABLE_ID 0x11bU
 #define HSAN_PFE_IFC_TABLE_ROWS 500U
 #define HSAN_PFE_IFC_TABLE_WIDTH 32U
+#define HSAN_PFE_IFC_DYNAMIC_FIRST 12U
+/* Native table manager allocates logical slot0 at physical row12
+ * Runtime LAN port10 rule: label0, priority0, EOF1, PQ1/PQ enable3
+ * Keep this software allocation separate from the 11 factory rows
+ */
+static const u8 hsan_ifc_lan1_qos_candidate[32] = {
+    [9] = 4, [15] = 0x40, [21] = 0xc0, [22] = 1,
+};
+static const u32 hsan_ifc_lan1_qos_row[15] = {
+    0,0,0,0x04000000,0x0003080c,0x08000000,0,
+    0,0x00700000,0,0,0,0,0,0,
+};
 /* OEM hi_capa_ifc_add type1/subtype3, port10, MAC02:00:00:00:00:01,
  * action0; omit the optional VLAN key, retaining the original label4
  * Then original ifc_write at the already owned default row10
@@ -311,6 +323,10 @@ struct hsan_pfe_state {
     u32 ifc_observed_image_crc32;
     bool ifc_late_window_drift_latched;
     bool ifc_lan1_mac_requested;
+    bool ifc_lan1_qos_requested;
+    bool ifc_lan1_qos_reserved;
+    bool ifc_lan1_qos_committed;
+    u32 ifc_lan1_qos_slot;
     bool fam_fence_abort_latched;
     u32 fam_fence_abort_step;
     u32 ofc_dynamic_entries;
@@ -385,7 +401,8 @@ static bool hsan_pfe_hardware_attempted(const struct hsan_pfe_state *p)
  * IFC row, rather than trusting an earlier sleepable preflight. Generic
  * CSR writes also reject an external STOP under their IRQ-safe spinlock.
  * Step 1=global, 2=OPP, 3=TFRT, 4=OFC, 5=MCC, 6=NAPT fixed,
- * 7=NAPT partition, 8=IFC, 9=PA; 100..111=individual IFC rows.
+ * 7=NAPT partition, 8=IFC, 9=PA; 100..110=factory IFC rows
+ * 112=the separately allocated LAN1 QoS row
  */
 static int hsan_pfe_fam_fence_guard(struct hsan_pfe_state *state, u32 step)
 {
@@ -457,6 +474,21 @@ static void hsan_pfe_observe_ifc_late_window(struct hsan_pfe_state *p,
             goto invalid;
         }
         out->ifc_late_window_rows_matched++;
+    }
+    if (p->ifc_lan1_qos_requested) {
+        if (!p->ifc_lan1_qos_committed) {
+            ret = -ENODATA;
+            goto invalid;
+        }
+        ret = hsan_lsw_ifc_read_window(HSAN_PFE_IFC_DYNAMIC_FIRST,
+                                       actual);
+        if (ret)
+            goto invalid;
+        if (memcmp(actual, hsan_ifc_lan1_qos_row +
+                   HSAN_PFE_IFC_CONTROL_WORDS, sizeof(actual))) {
+            ret = -EUCLEAN;
+            goto invalid;
+        }
     }
     out->ifc_late_window_sampled = true;
     return;
@@ -748,6 +780,9 @@ bool hsan_lsw_pfe_cpu_bootstrap_ready(void)
         p->lan1_pub_verified && p->ifc_tag_verified &&
         p->ifc_rows_committed == HSAN_PFE_IFC_DEFAULT_ROWS &&
         p->ifc_rows_window_readback == HSAN_PFE_IFC_DEFAULT_ROWS &&
+        (!p->ifc_lan1_qos_requested ||
+         (p->ifc_lan1_qos_reserved && !p->ifc_lan1_qos_slot &&
+          p->ifc_lan1_qos_committed)) &&
         !p->ifc_late_window_drift_latched &&
         !hsan_lsw_dp_fam_cpu_fenced();
     mutex_unlock(&hsan_pfe_owner_lock);
@@ -1242,9 +1277,24 @@ static ssize_t bootstrap_ready_show(struct device *dev,
     return sysfs_emit(buf, "%u\n", hsan_lsw_pfe_cpu_bootstrap_ready());
 }
 static DEVICE_ATTR_RO(bootstrap_ready);
+static ssize_t ifc_lan1_qos_state_show(struct device *dev,
+                                     struct device_attribute *attr, char *buf)
+{
+    struct hsan_pfe_state *p = dev_get_drvdata(dev);
+
+    if (!p)
+        return -ENODATA;
+    return sysfs_emit(buf,
+        "requested=%u reserved=%u slot=%u physical=%u committed=%u late_drift=%u\n",
+        p->ifc_lan1_qos_requested, p->ifc_lan1_qos_reserved,
+        p->ifc_lan1_qos_slot, HSAN_PFE_IFC_DYNAMIC_FIRST,
+        p->ifc_lan1_qos_committed, p->ifc_late_window_drift_latched);
+}
+static DEVICE_ATTR_RO(ifc_lan1_qos_state);
 static struct attribute *hsan_pfe_attrs[] = {
     &dev_attr_gro_flow_state.attr,
     &dev_attr_bootstrap_ready.attr,
+    &dev_attr_ifc_lan1_qos_state.attr,
     NULL,
 };
 ATTRIBUTE_GROUPS(hsan_pfe);
@@ -2214,7 +2264,40 @@ static int hsan_pfe_prepare_ifc_shadow(struct platform_device *pdev,
 
     if (!ret)
         state->ifc_shadow_registered = true;
-    return ret;
+    if (ret)
+        return ret;
+    state->ifc_lan1_qos_requested = of_property_read_bool(
+            pdev->dev.of_node, "hsan,experimental-ifc-lan1-qos");
+    if (!state->ifc_lan1_qos_requested)
+        return 0;
+    if (!of_property_read_bool(pdev->dev.of_node,
+            "hsan,experimental-program-ifc-defaults") ||
+        !of_property_read_bool(pdev->dev.of_node,
+            "hsan,experimental-ifc-cpu-path") ||
+        !of_property_read_bool(pdev->dev.of_node,
+            "hsan,experimental-program-pa-prelude") ||
+        !of_find_property(pdev->dev.of_node,
+            "hsan,experimental-gro-v4-tcp-flow", NULL) ||
+        of_property_read_bool(pdev->dev.of_node,
+            "hsan,experimental-ifc-lan1-mac"))
+        return -EINVAL;
+    /* This table owner is new in this boot, after the audited DP reset
+     * No hardware write, existing row overwrite or allocator callback here
+     */
+    ret = hsan_lsw_shadow_table_alloc_range(&pdev->dev,
+            HSAN_PFE_IFC_TABLE_ID, 1, 1, &state->ifc_lan1_qos_slot);
+    if (ret)
+        return ret;
+    state->ifc_lan1_qos_reserved = true;
+    if (state->ifc_lan1_qos_slot)
+        return -EBUSY;
+    ret = hsan_lsw_shadow_table_write(&pdev->dev, HSAN_PFE_IFC_TABLE_ID,
+            state->ifc_lan1_qos_slot, hsan_ifc_lan1_qos_candidate,
+            sizeof(hsan_ifc_lan1_qos_candidate));
+    if (ret)
+        return ret;
+    return hsan_lsw_check_span(0x00050000U +
+            HSAN_PFE_IFC_DYNAMIC_FIRST * 32U, 32U, true);
 }
 
 static void hsan_pfe_release_ifc_shadow(struct platform_device *pdev,
@@ -2224,6 +2307,15 @@ static void hsan_pfe_release_ifc_shadow(struct platform_device *pdev,
 
     if (!state->ifc_shadow_registered)
         return;
+    /* Called only during reversible software rollback, before HW writes */
+    if (state->ifc_lan1_qos_reserved) {
+        ret = hsan_lsw_shadow_table_release_range(&pdev->dev,
+                HSAN_PFE_IFC_TABLE_ID, state->ifc_lan1_qos_slot, 1);
+        if (ret)
+            dev_warn(&pdev->dev, "IFC QoS shadow reservation release failed: %d\n", ret);
+        else
+            state->ifc_lan1_qos_reserved = false;
+    }
     ret = hsan_lsw_shadow_table_delete(&pdev->dev,
                                        HSAN_PFE_IFC_TABLE_ID);
     if (ret)
@@ -2480,6 +2572,11 @@ static int hsan_pfe_program_ifc_defaults(struct platform_device *pdev,
         goto out;
     if (state->ifc_lan1_mac_requested)
         dev_warn(dev, "IFC owned row10 substituted with restricted LAN1 MAC diagnostic; forwarding not qualified\n");
+    /* The optional allocated row follows native PA initialization
+     * It completes this same non-replayable boot batch before quarantine
+     */
+    if (state->ifc_lan1_qos_requested)
+        goto out;
     /* The CPU-visible two-half MMIO window was read back for every
      * row, but the IFC hardware table *activation* and forwarding-state
      * read/ACK protocol remain unqualified. Permanently quarantine the
@@ -2489,7 +2586,8 @@ static int hsan_pfe_program_ifc_defaults(struct platform_device *pdev,
     if (ret)
         goto out;
     state->ifc_engine_quarantined = true;
-    dev_warn(dev, "IFC 11 commands accepted; engine quarantined until reboot because table backing/forwarding is unverified\n");
+    dev_warn(dev, "IFC defaults=%u allocated-QoS=%u accepted; engine quarantined, forwarding unverified\n",
+             state->ifc_rows_committed, state->ifc_lan1_qos_committed);
 out:
     if (ret && state->ifc_hw_attempted) {
         state->ifc_engine_quarantined =
@@ -2500,6 +2598,47 @@ out:
     }
     kfree(observed);
     return ret;
+}
+
+static int hsan_pfe_program_ifc_lan1_qos(struct platform_device *pdev,
+                                        struct hsan_pfe_state *state)
+{
+    u8 candidate[sizeof(hsan_ifc_lan1_qos_candidate)];
+    int ret, quarantine_ret;
+
+    if (!state->ifc_lan1_qos_requested)
+        return 0;
+    if (!state->pa_csr_verified || !state->ifc_hw_attempted ||
+        state->ifc_engine_quarantined || !state->ifc_lan1_qos_reserved ||
+        state->ifc_lan1_qos_slot ||
+        state->ifc_rows_window_readback != HSAN_PFE_IFC_DEFAULT_ROWS) {
+        ret = -ENODATA;
+        goto out;
+    }
+    ret = hsan_lsw_shadow_table_read(&pdev->dev, HSAN_PFE_IFC_TABLE_ID,
+            state->ifc_lan1_qos_slot, candidate, sizeof(candidate));
+    if (ret)
+        goto out;
+    if (memcmp(candidate, hsan_ifc_lan1_qos_candidate, sizeof(candidate))) {
+        ret = -ESTALE;
+        goto out;
+    }
+    ret = hsan_pfe_fam_fence_guard(state, 112U);
+    if (ret)
+        goto out;
+    ret = hsan_lsw_ifc_commit(HSAN_PFE_IFC_DYNAMIC_FIRST,
+            hsan_ifc_lan1_qos_row,
+            hsan_ifc_lan1_qos_row + HSAN_PFE_IFC_CONTROL_WORDS,
+            &state->ifc_last_status);
+    if (!ret) {
+        state->ifc_lan1_qos_committed = true;
+        dev_warn(&pdev->dev,
+            "IFC allocated LAN1 label0 PQ1 row submitted; forwarding unqualified\n");
+    }
+out:
+    quarantine_ret = hsan_lsw_ifc_quarantine();
+    state->ifc_engine_quarantined = true;
+    return ret ? ret : quarantine_ret;
 }
 
 /* hi_pfe_mcc_exit @0x6d20 deletes IDs 0x10c, 0x10a and 0x800.
@@ -3410,6 +3549,9 @@ static int hsan_pfe_probe_locked(struct platform_device *pdev)
     ret = hsan_pfe_program_pa_prelude(pdev, state);
     if (ret)
         goto rollback;
+    ret = hsan_pfe_program_ifc_lan1_qos(pdev, state);
+    if (ret)
+        goto rollback;
     ret = hsan_pfe_mirror_lan1_cpu(pdev, state);
     if (ret)
         goto rollback;
@@ -3441,6 +3583,10 @@ rollback:
      * expose the original failure, while fencing subsequent CPU writes.
      */
     if (hsan_pfe_hardware_attempted(state)) {
+        if (state->ifc_hw_attempted && !state->ifc_engine_quarantined) {
+            hsan_lsw_ifc_quarantine();
+            state->ifc_engine_quarantined = true;
+        }
         state->probe_quarantined = true;
         state->bindings_retained = true;
         state->probe_errno = ret < 0 ? (u32)-ret : EIO;
