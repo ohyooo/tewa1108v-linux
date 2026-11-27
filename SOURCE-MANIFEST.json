@@ -50,6 +50,7 @@
     "reverse/disassembly/oem-reset.dis",
     "reverse/profiles/derive_oem_opp_port33.py",
     "reverse/profiles/inspect_oem_capa_dependencies.py",
+    "reverse/profiles/inspect_oem_ifc_fields.py",
     "reverse/profiles/oem-capa-callback-provenance.json",
     "reverse/profiles/oem-capa-selector7-proof.json",
     "reverse/profiles/oem-cpu-opp-profile.json",
