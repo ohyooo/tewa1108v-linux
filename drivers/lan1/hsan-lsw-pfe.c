@@ -32,8 +32,9 @@
 /* hi_pfe_probe @.text+0x2cdc initialisation sequence:
  *   hi_pfe_init -> pub -> opp -> ofc -> mcc -> napt -> tnl ->
  *   dslite -> ude -> ifc -> pa -> dfx.
- * Only the hi_pfe_init's register prelude is ported. The remaining
- * table-manager and submodule owners stay UNINITIALISED, never "ready".
+ * The scoped ARM64 transports below implement the explicitly gated
+ * LAN1/GRO path. Software-only shadow owners remain distinct from
+ * hardware plans and do not implement the other OEM feature callbacks.
  */
 /* OEM hi_pfe_init @0x2a94 creates table ID 0x10f with cfg[8]=3,
  * cfg[16]=4, cfg[26]=1; hi_pfe_exit deletes the same ID.
@@ -145,7 +146,7 @@ static const struct hsan_pfe_pub_table_desc hsan_pfe_ofc_tables[] = {
 static_assert(ARRAY_SIZE(hsan_pfe_ofc_tables) == HSAN_PFE_OFC_TABLE_COUNT);
 /* Further OEM PFE lifetime owners recovered from hi_lsw_pfe.ko:
  * hi_pfe_tnl_init @0x81ac: id=0x114, .rodata+0xc48 cfg[8]=14,
- * cfg[16]=128; hi_pfe_dslite_init @0x8770: id=0x119 64x64B;
+ * cfg[16]=128; hi_pfe_dslite_init @0x8770: id=0x119 8x64B;
  * hi_pfe_ude_init @0x81d0: id=0x11a 15x4B.
  * hi_pfe_pa_init @0x75bc jumps into code at 0x6d40, registering
  * id=0x129 (3x44B), writing CSR 0x07000704=1, then registering
@@ -155,7 +156,7 @@ static_assert(ARRAY_SIZE(hsan_pfe_ofc_tables) == HSAN_PFE_OFC_TABLE_COUNT);
 #define HSAN_PFE_SERVICE_TABLE_COUNT 3U
 static const struct hsan_pfe_pub_table_desc hsan_pfe_service_tables[] = {
     {0x114, 14, 128, "tnl_0114"},
-    {0x119, 64, 64, "dslite_0119"},
+    {0x119, 8, 64, "dslite_0119"},
     {0x11a, 15, 4, "ude_011a"},
 };
 #define HSAN_PFE_PA_TABLE_COUNT 2U
@@ -1265,7 +1266,7 @@ static int hsan_pfe_gro_resources(struct platform_device *pdev,
 /* One explicitly requested diagnostic TCP flow, with immutable preflight
  * state and a retained original table-manager-shaped software record
  */
-static ssize_t gro_flow_state_show(struct device *dev,
+static ssize_t gro_flow_state_show_control_locked(struct device *dev,
                                   struct device_attribute *attr, char *buf)
 {
     struct hsan_pfe_state *state = dev_get_drvdata(dev);
@@ -1282,8 +1283,22 @@ static ssize_t gro_flow_state_show(struct device *dev,
     mutex_unlock(&state->gro_flow_lock);
     return ret;
 }
+
+static ssize_t gro_flow_state_show(struct device *dev,
+                                  struct device_attribute *attr, char *buf)
+{
+    struct hsan_lsw_control_guard guard;
+    ssize_t ret;
+
+    ret = hsan_lsw_control_begin(&guard);
+    if (ret)
+        return ret;
+    ret = gro_flow_state_show_control_locked(dev, attr, buf);
+    hsan_lsw_control_end(&guard);
+    return ret;
+}
 static DEVICE_ATTR_RO(gro_flow_state);
-static ssize_t gro_flow_remove_store(struct device *dev,
+static ssize_t gro_flow_remove_store_control_locked(struct device *dev,
                                     struct device_attribute *attr,
                                     const char *buf, size_t count)
 {
@@ -1301,8 +1316,23 @@ static ssize_t gro_flow_remove_store(struct device *dev,
     mutex_unlock(&state->gro_flow_lock);
     return ret ? ret : count;
 }
+
+static ssize_t gro_flow_remove_store(struct device *dev,
+                                    struct device_attribute *attr,
+                                    const char *buf, size_t count)
+{
+    struct hsan_lsw_control_guard guard;
+    ssize_t ret;
+
+    ret = hsan_lsw_control_begin(&guard);
+    if (ret)
+        return ret;
+    ret = gro_flow_remove_store_control_locked(dev, attr, buf, count);
+    hsan_lsw_control_end(&guard);
+    return ret;
+}
 static DEVICE_ATTR_WO(gro_flow_remove);
-static ssize_t gro_flow_restore_store(struct device *dev,
+static ssize_t gro_flow_restore_store_control_locked(struct device *dev,
                                      struct device_attribute *attr,
                                      const char *buf, size_t count)
 {
@@ -1323,6 +1353,21 @@ static ssize_t gro_flow_restore_store(struct device *dev,
         state->gro_flow_hardware_id = hardware_id;
     mutex_unlock(&state->gro_flow_lock);
     return ret ? ret : count;
+}
+
+static ssize_t gro_flow_restore_store(struct device *dev,
+                                     struct device_attribute *attr,
+                                     const char *buf, size_t count)
+{
+    struct hsan_lsw_control_guard guard;
+    ssize_t ret;
+
+    ret = hsan_lsw_control_begin(&guard);
+    if (ret)
+        return ret;
+    ret = gro_flow_restore_store_control_locked(dev, attr, buf, count);
+    hsan_lsw_control_end(&guard);
+    return ret;
 }
 static DEVICE_ATTR_WO(gro_flow_restore);
 static ssize_t bootstrap_ready_show(struct device *dev,
@@ -1498,7 +1543,7 @@ static struct hsan_pfe_state *hsan_pfe_auto_owner(void)
     return state;
 }
 
-int hsan_lsw_pfe_gro_auto_add(unsigned int slot,
+static int hsan_lsw_pfe_gro_auto_add_control_locked(unsigned int slot,
                              const struct hsan_pfe_gro_v4_tuple *key, u32 *id)
 {
     struct hsan_pfe_state *state;
@@ -1546,9 +1591,25 @@ out:
     mutex_unlock(&hsan_pfe_owner_lock);
     return ret;
 }
+
+int hsan_lsw_pfe_gro_auto_add(unsigned int slot,
+                             const struct hsan_pfe_gro_v4_tuple *key, u32 *id)
+{
+    struct hsan_lsw_control_guard guard;
+    int ret;
+
+    if (id)
+        *id = U32_MAX;
+    ret = hsan_lsw_control_begin(&guard);
+    if (ret)
+        return ret;
+    ret = hsan_lsw_pfe_gro_auto_add_control_locked(slot, key, id);
+    hsan_lsw_control_end(&guard);
+    return ret;
+}
 EXPORT_SYMBOL_GPL(hsan_lsw_pfe_gro_auto_add);
 
-int hsan_lsw_pfe_gro_auto_query(unsigned int slot, u32 *data)
+static int hsan_lsw_pfe_gro_auto_query_control_locked(unsigned int slot, u32 *data)
 {
     struct hsan_pfe_state *state;
     u32 status;
@@ -1571,9 +1632,24 @@ out:
     mutex_unlock(&hsan_pfe_owner_lock);
     return ret;
 }
+
+int hsan_lsw_pfe_gro_auto_query(unsigned int slot, u32 *data)
+{
+    struct hsan_lsw_control_guard guard;
+    int ret;
+
+    if (data)
+        *data = 0;
+    ret = hsan_lsw_control_begin(&guard);
+    if (ret)
+        return ret;
+    ret = hsan_lsw_pfe_gro_auto_query_control_locked(slot, data);
+    hsan_lsw_control_end(&guard);
+    return ret;
+}
 EXPORT_SYMBOL_GPL(hsan_lsw_pfe_gro_auto_query);
 
-int hsan_lsw_pfe_gro_auto_remove(unsigned int slot)
+static int hsan_lsw_pfe_gro_auto_remove_control_locked(unsigned int slot)
 {
     struct hsan_pfe_state *state;
     int ret;
@@ -1596,6 +1672,19 @@ int hsan_lsw_pfe_gro_auto_remove(unsigned int slot)
     mutex_unlock(&state->gro_flow_lock);
 out:
     mutex_unlock(&hsan_pfe_owner_lock);
+    return ret;
+}
+
+int hsan_lsw_pfe_gro_auto_remove(unsigned int slot)
+{
+    struct hsan_lsw_control_guard guard;
+    int ret;
+
+    ret = hsan_lsw_control_begin(&guard);
+    if (ret)
+        return ret;
+    ret = hsan_lsw_pfe_gro_auto_remove_control_locked(slot);
+    hsan_lsw_control_end(&guard);
     return ret;
 }
 EXPORT_SYMBOL_GPL(hsan_lsw_pfe_gro_auto_remove);
@@ -4016,13 +4105,26 @@ clocks:
     }
 	return ret;
 }
-static int hsan_pfe_probe(struct platform_device *pdev)
+static int hsan_pfe_probe_control_locked(struct platform_device *pdev)
 {
     int ret;
 
     mutex_lock(&hsan_pfe_probe_lock);
     ret = hsan_pfe_probe_locked(pdev);
     mutex_unlock(&hsan_pfe_probe_lock);
+    return ret;
+}
+
+static int hsan_pfe_probe(struct platform_device *pdev)
+{
+    struct hsan_lsw_control_guard guard;
+    int ret;
+
+    ret = hsan_lsw_control_begin(&guard);
+    if (ret)
+        return ret;
+    ret = hsan_pfe_probe_control_locked(pdev);
+    hsan_lsw_control_end(&guard);
     return ret;
 }
 

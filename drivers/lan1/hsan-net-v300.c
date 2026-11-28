@@ -49,6 +49,9 @@
 #include <net/tcp.h>
 #include "hsan-gemac-lan1.h"
 #include "hsan-pie-rx-desc.h"
+#include "hsan-pie-rx-ledger.h"
+#include "hsan-dp-queue-diag.h"
+#include "hsan-dma-lifecycle.h"
 #include <linux/spinlock.h>
 #include <linux/workqueue.h>
 
@@ -60,6 +63,8 @@
  * bytes at 0x3000; per-channel IRQ status/mask banks use 4-byte steps.
  * These addresses are from ARM32 code, not from a live board.
  */
+#define HSAN_OEM_TX_CHANNELS    8U
+#define HSAN_OEM_TX_CH_STRIDE   0x10U
 #define HSAN_OEM_RX_CHANNELS    8U
 #define HSAN_NET_RX_CHANNELS    4U
 #define HSAN_OEM_IRQ_GROUPS     4U
@@ -131,6 +136,14 @@ enum hsan_rx_wptr_cmp_state {
     HSAN_RX_WPTR_MATCHED,
     HSAN_RX_WPTR_MISMATCH,
 };
+struct hsan_rx_stop_ledger_sample {
+    u64 begin_ns, end_ns;
+    u32 slots[HSAN_PIE_RX_SLOT_CLASS_COUNT];
+    u32 owner_set[HSAN_PIE_RX_SLOT_CLASS_COUNT];
+    u32 zero_address, missing_buffer;
+    u16 hw_rptr;
+    int error;
+};
 struct hsan_v300_rx_queue {
     struct hsan_v300 *parent;
     struct napi_struct napi;
@@ -155,6 +168,7 @@ struct hsan_v300_rx_queue {
     u64 irq_events, polls;
     u16 stop_hw_rptr_before, stop_hw_rptr_after;
     u32 stop_hw_wptr_before, stop_hw_wptr_after;
+    struct hsan_rx_stop_ledger_sample stop_ledger;
 };
 
 enum hsan_net_open_stage {
@@ -231,6 +245,10 @@ struct hsan_v300 {
 	bool dma_ever_started;
 	bool soft_paused;
 	bool hardware_quiesced;
+    struct hsan_dma_lifecycle dma_lifecycle;
+    u64 control_pause_generation;
+    bool control_paused;
+    int control_last_errno;
 	unsigned long fault_flags;
 	u32 stalled_ticks;
 	bool reported_stall;
@@ -354,6 +372,14 @@ struct hsan_v300 {
     u64 tx_slot_cursor_wraps;
     u16 last_tx_hw_rptr;
     u16 last_tx_published_wptr;
+    /* Last read-only TX1..7 observation, serialized by tx_lock. These
+     * channels belong to no queue in this driver; never clear their state.
+     */
+    u64 foreign_tx_checks;
+    u64 foreign_tx_faults;
+    u32 foreign_tx_last_bitmap;
+    u32 stop_foreign_tx_bitmap;
+    u32 foreign_tx_words[HSAN_OEM_TX_CHANNELS - 1][4];
     u64 tx_nomem_drops; /* skb consumed; do not spin NETDEV_TX_BUSY */
     u64 irq_mask_readback_faults; /* IRQ mask bit0 failed CPU readback */
     u64 gemac_runtime_faults; /* running MAC clock/config/one-shot state lost */
@@ -368,6 +394,22 @@ struct hsan_v300 {
     u16 last_tx_wptr_readback;
     u16 last_rx_wptr_readback;
 };
+/* The state record describes the CPU protocol; release remains governed
+ * by dma_ever_started and the existing FAM ownership rules. In particular,
+ * no successful state transition is a hardware completion certificate.
+ */
+static void hsan_dma_phase_locked(struct hsan_v300 *p,
+                                  enum hsan_dma_phase phase, int error)
+{
+    struct hsan_dma_lifecycle *record = &p->dma_lifecycle;
+
+    lockdep_assert_held(&p->tx_lock);
+    record->phase = phase;
+    record->last_errno = error;
+    record->sequence++;
+    record->changed_ns = ktime_get_ns();
+}
+
 static ssize_t hsan_gro_capture_read(struct file *file, struct kobject *kobject,
                                      const struct bin_attribute *attribute,
                                      char *buffer, loff_t offset, size_t count)
@@ -775,6 +817,9 @@ enum hsan_dma_fault_code {
     HSAN_DMA_FAULT_FOREIGN_RX_ACTIVE = 22,
     HSAN_DMA_FAULT_RX_BATCH_LEDGER = 23,
     HSAN_DMA_FAULT_RX_STALE_SNAPSHOT = 24,
+    HSAN_DMA_FAULT_STOP_READBACK = 25,
+    HSAN_DMA_FAULT_FOREIGN_TX_ACTIVE = 26,
+    HSAN_DMA_FAULT_CONTROL_PROTOCOL = 27,
 };
 
 static void hsan_quarantine_datapath_locked(struct hsan_v300 *p,
@@ -784,6 +829,11 @@ static void hsan_quarantine_datapath_locked(struct hsan_v300 *p,
         return;
     p->dma_fault_first_code = code;
     p->dma_fault_events++;
+    hsan_dma_phase_locked(p, p->dma_ever_started ?
+                           HSAN_DMA_ERROR_RETAINED :
+                           HSAN_DMA_ERROR_UNPUBLISHED, -EIO);
+    p->dma_lifecycle.operation_end_ns = ktime_get_ns();
+    WRITE_ONCE(p->soft_paused, false);
     WRITE_ONCE(p->active, false);
     if (p->dma_ever_started) {
         /* Atomic, IRQ-safe FAM producer fence shared with PFE. A fault
@@ -803,6 +853,60 @@ static void hsan_quarantine_datapath_locked(struct hsan_v300 *p,
           code, reason);
 }
 
+/* hi_kpie sha256 945e398ff37a436089febb1eb3501492779e40ed99dbd7a4e310d3e3bf2f51cd:
+ * tx_ring=<12 8> is order/count, not two ring orders. Probe stores the
+ * second cell in config+0x130; drv_init .text+0x4610/4614 copies it to
+ * state+5, which bounds drv_tx_init. v300 tx_init_chan .text+0x23d0
+ * rejects channel > 7 and uses base + 0x2000 + channel*0x10.
+ * Only TX0 is owned here. A nonzero BASE/RING/cursor on TX1..7 is not
+ * evidence of idle ownership, even when RPTR equals WPTR. This read-only
+ * check is not a bus lock and does not establish a global DMA drain.
+ * Callers may omit rows; callers storing driver diagnostics hold tx_lock.
+ */
+static u32 hsan_sample_foreign_tx(struct hsan_v300 *p,
+                    u32 rows[HSAN_OEM_TX_CHANNELS - 1][4])
+{
+    u32 bitmap = 0;
+    unsigned int ch, word;
+
+    for (ch = 1; ch < HSAN_OEM_TX_CHANNELS; ch++) {
+        u32 combined = 0;
+
+        for (word = 0; word < 4; word++) {
+            u32 value = hsan_r32(p, HSAN_TX_CH +
+                                  ch * HSAN_OEM_TX_CH_STRIDE + word * 4);
+
+            combined |= value;
+            if (rows)
+                rows[ch - 1][word] = value;
+        }
+        if (combined)
+            bitmap |= BIT(ch);
+    }
+    return bitmap;
+}
+
+/* Never invoke while holding a FAM guard: quarantine acquires the same
+ * CSR spinlock. All publication/reclaim users call before that guard.
+ */
+static bool hsan_foreign_tx_clean_locked(struct hsan_v300 *p)
+{
+    u32 bitmap;
+
+    lockdep_assert_held(&p->tx_lock);
+    bitmap = hsan_sample_foreign_tx(p, p->foreign_tx_words);
+    p->foreign_tx_checks++;
+    p->foreign_tx_last_bitmap = bitmap;
+    if (!bitmap)
+        return true;
+    p->foreign_tx_faults++;
+    hsan_quarantine_datapath_locked(p, HSAN_DMA_FAULT_FOREIGN_TX_ACTIVE,
+                                    "unowned TX1..7 ring state is visible");
+    netdev_err(p->ndev, "foreign TX channel bitmap=%#x; TX0 is the only owned queue\n",
+               bitmap);
+    return false;
+}
+
 /* OEM IRQ[0..3] services RX pairs 0/7, 1/6, 2/5, 3/4.
  * A watchdog-only scan leaves a window in which RX0 can publish another
  * descriptor (or unmask IRQ[0]) after a foreign GRO RX4..7 owner has appeared.
@@ -814,6 +918,8 @@ static void hsan_quarantine_datapath_locked(struct hsan_v300 *p,
  */
 static bool hsan_rx_publication_foreign_clean_locked(struct hsan_v300 *p)
 {
+    if (!hsan_foreign_tx_clean_locked(p))
+        return false;
     p->other_rx_publish_checks++;
     if (hsan_unused_rx_runtime_clean_locked(p))
         return true;
@@ -996,6 +1102,8 @@ static void hsan_tx_reclaim_locked(struct hsan_v300 *p)
      */
     if (!READ_ONCE(p->active) ||
         test_bit(HSAN_FAULT_DATAPATH, &p->fault_flags))
+        return;
+    if (!hsan_foreign_tx_clean_locked(p))
         return;
     /* Stage70: an independent FAM owner can close the CPU publication
      * fence without ndo_stop. Its closure is not a hardware DMA STOP
@@ -1774,8 +1882,7 @@ static int hsan_napi_poll(struct napi_struct *napi, int budget)
          * skb_put_data outside both STOP fences, then only protected the
          * later CPU->device re-arm. A concurrent external FAM STOP could
          * complete between those operations, leaving a late CPU read of
-         * an unknown HW-owned RX buffer. The bounded (<= 2048 byte)
-         * CPU cache-sync, skb copy, return sync, SF_RPTR update and
+         * an unknown HW-owned RX buffer. The CPU cache-sync bounded by the queue buffer size, skb copy, return sync, SF_RPTR update and
          * descriptor re-arm now form one FAM/PIE critical section.
          * skb allocation was done above, outside the spinlocks.
          */
@@ -2266,6 +2373,10 @@ static void hsan_watchdog(struct work_struct *w)
         if (READ_ONCE(p->active) &&
             !test_bit(HSAN_FAULT_DATAPATH, &p->fault_flags)) {
             p->last_other_rx_audit = jiffies;
+            if (!hsan_foreign_tx_clean_locked(p)) {
+                spin_unlock_irqrestore(&p->tx_lock, flags);
+                return;
+            }
             if (!hsan_unused_rx_runtime_clean_locked(p)) {
                 hsan_quarantine_datapath_locked(p,
                     HSAN_DMA_FAULT_FOREIGN_RX_ACTIVE,
@@ -2367,12 +2478,19 @@ static void hsan_watchdog(struct work_struct *w)
             struct hsan_lsw_fam_publish_guard obs;
             u8 desc[HSAN_DESC_BYTES];
             u32 controls[4];
-            u64 counters[14] = { 0 };
+            u64 counters[8] = { 0 };
             unsigned int i, j, sampled = 0;
-            int counter_err = 0;
+            int counter_err = -EAGAIN;
 
             spin_lock_irqsave(&p->tx_lock, flags);
-            if (!hsan_lsw_fam_observe_begin(&obs)) {
+            /* A retained pause leaves the shared FAM fence open. Recheck
+             * PIE admission after reacquiring tx_lock, before issuing any
+             * DFX command; the earlier stall snapshot is no admission.
+             */
+            if (READ_ONCE(p->active) &&
+                !test_bit(HSAN_FAULT_DATAPATH, &p->fault_flags) &&
+                !hsan_lsw_fam_observe_begin(&obs)) {
+                counter_err = 0;
                 dma_rmb();
                 memcpy(desc, hsan_tx_desc(p, tx_cons & p->tx_mask),
                        sizeof(desc));
@@ -2380,9 +2498,10 @@ static void hsan_watchdog(struct work_struct *w)
                 controls[1] = hsan_r32(p, 0x2200);
                 controls[2] = hsan_r32(p, HSAN_TX_CH + HSAN_CH_BASE);
                 controls[3] = hsan_r32(p, HSAN_TX_CH + HSAN_CH_RING);
-                /* OEM v300 DFX read command @0x27e4: type2 TX,
-                 * index0..13 channel0; distinct from counter-clear writes.
-                 * Bound busy polling, never replay a failed command.
+                /* OEM hi_pie_dfx_show_all_chl_cnt @0x29a0 selects table3
+                 * for TX, with eight counters per channel (@0x2904).
+                 * Table2/index0..13 is RX, not TX. These are packet/byte
+                 * counters, never a DMA drain or outstanding count.
                  */
                 for (i = 0; i < ARRAY_SIZE(counters); i++) {
                     u32 status = 0;
@@ -2397,7 +2516,7 @@ static void hsan_watchdog(struct work_struct *w)
                         counter_err = -EBUSY;
                         break;
                     }
-                    hsan_w32(p, 0x1004, 0x40020000U | i);
+                    hsan_w32(p, 0x1004, 0x40030000U | i);
                     for (poll = 0; poll < 1001; poll++) {
                         status = hsan_r32(p, 0x1004);
                         if (!(status & BIT(30)))
@@ -2596,6 +2715,9 @@ static netdev_tx_t hsan_start_xmit(struct sk_buff *skb,
             HSAN_DMA_FAULT_FAM_EXTERNAL_FENCE,
             "FAM CPU producer fence closed before TX submit");
     }
+    if (READ_ONCE(p->active) &&
+        !test_bit(HSAN_FAULT_DATAPATH, &p->fault_flags))
+        hsan_foreign_tx_clean_locked(p);
 	/* Reclaim can quarantine DMA after a corrupt HW consumer. A race with
 	 * ndo_stop can also deactivate the controller after the first test.
 	 * Neither condition may submit an additional device-owned mapping.
@@ -2849,6 +2971,8 @@ static bool hsan_owned_rx_idle(struct hsan_v300 *p)
     if (hsan_r32(p, HSAN_TX_CH + HSAN_CH_RPTR) ||
         hsan_r32(p, HSAN_TX_CH + HSAN_CH_WPTR))
         bad |= BIT(10);
+    if (hsan_sample_foreign_tx(p, NULL))
+        bad |= BIT(11);
     if (bad) {
         p->rx_init_bad_channel = HSAN_OEM_RX_CHANNELS; /* TX/global */
         p->rx_init_bad_fields = bad;
@@ -2970,7 +3094,7 @@ static bool hsan_clock_gates_ready(struct hsan_v300 *p)
 	return ok;
 }
 
-/* OEM hi_kpie .init.text hi_pie_probe @0xc4..0xdc: assert/deassert
+/* OEM hi_kpie .text.unlikely hi_pie_probe @0xc4..0xdc: assert/deassert
  * before publishing new descriptors. This is a cold-boot operation only,
  * never a runtime DMA drain, ownership return or safe-unmap assertion.
  */
@@ -3028,7 +3152,8 @@ static int hsan_pie_boot_reset(struct platform_device *pdev, struct hsan_v300 *p
 		return ret < 0 ? ret : -EIO;
 	dev_info(&pdev->dev, "PIE post-reset RX global=%#x TX base=%#x\n",
 		 hsan_r32(p, HSAN_RX_GLOBAL), hsan_r32(p, HSAN_TX_CH + HSAN_CH_BASE));
-	if (hsan_r32(p, HSAN_TX_CH + HSAN_CH_BASE))
+	if (hsan_r32(p, HSAN_TX_CH + HSAN_CH_BASE) ||
+	    hsan_sample_foreign_tx(p, NULL))
 		return -EBUSY;
 	/* v300 reset defaults RX global to 0x2001. Explicitly disable the
 	 * documented bit0 before configuring new rings; preserve all others.
@@ -3043,7 +3168,7 @@ static int hsan_pie_boot_reset(struct platform_device *pdev, struct hsan_v300 *p
 			return -EBUSY;
 	p->boot_reset_verified = true;
 	dev_info(&pdev->dev,
-		 "OEM PIE boot reset verified: RX disabled, eight RX bases and TX base zero; not runtime STOP ACK\n");
+		 "OEM PIE boot reset verified: RX disabled, eight RX bases and all eight TX channels checked; not runtime STOP ACK\n");
 	return 0;
 }
 
@@ -3076,7 +3201,8 @@ static int hsan_pie_boot_globals(struct hsan_v300 *p)
 		return 0;
 	if (!p->boot_reset_verified ||
 	    (hsan_r32(p, HSAN_RX_GLOBAL) & HSAN_RX_GLOBAL_ENABLE) ||
-	    hsan_r32(p, HSAN_TX_CH + HSAN_CH_BASE))
+	    hsan_r32(p, HSAN_TX_CH + HSAN_CH_BASE) ||
+	    hsan_sample_foreign_tx(p, NULL))
 		return -EBUSY;
 	for (ch = 0; ch < HSAN_OEM_RX_CHANNELS; ch++)
 		if (hsan_r32(p, hsan_rx_chan_reg(ch, HSAN_CH_BASE)))
@@ -3539,7 +3665,8 @@ static bool hsan_retained_dma_valid_locked(struct hsan_v300 *p)
                 return false;
         }
     }
-    return hsan_unused_rx_runtime_clean_locked(p);
+    return !hsan_sample_foreign_tx(p, NULL) &&
+           hsan_unused_rx_runtime_clean_locked(p);
 }
 
 /* STOP can suppress the low16 kick after NAPI has rebuilt a partial
@@ -3601,7 +3728,7 @@ static int hsan_open_datapath(struct net_device *ndev)
         !of_property_read_bool(p->dev->of_node,
                               "hsan,experimental-cpu-lan1-diagnostic")) {
         dev_err(p->dev,
-            "RX0..3 ordinary queues implemented; %u GRO queues configured but OEM GRO metadata/delivery remains unimplemented\n",
+            "RX0..3 ordinary queues implemented; %u GRO queues require the explicit LAN1/GRO profile\n",
             p->gro_channels);
         return -EOPNOTSUPP;
     }
@@ -3624,9 +3751,10 @@ static int hsan_open_datapath(struct net_device *ndev)
     WRITE_ONCE(p->open_stage, HSAN_NET_OPEN_RX_IDLE);
     if (!resume && (!hsan_owned_rx_idle(p) || !hsan_unused_rx_prearm_clean(p))) {
         dev_err(p->dev,
-            "PIE RX ownership/geometry is not idle; foreign RX%u flags=%#x owned RX%u fields=%#x\n",
+            "PIE ownership/geometry is not idle; foreign RX%u flags=%#x owned RX%u fields=%#x foreign TX bitmap=%#x\n",
             p->other_rx_bad_channel, p->other_rx_bad_flags,
-            p->rx_init_bad_channel, p->rx_init_bad_fields);
+            p->rx_init_bad_channel, p->rx_init_bad_fields,
+            hsan_sample_foreign_tx(p, NULL));
         return -EBUSY;
     }
     WRITE_ONCE(p->open_stage, HSAN_NET_OPEN_ALLOC);
@@ -3881,17 +4009,121 @@ err_queues:
     return ret;
 }
 
+static int hsan_stop(struct net_device *ndev);
+
 static int hsan_open(struct net_device *ndev)
 {
     struct hsan_v300 *p = netdev_priv(ndev);
-    int ret;
+    struct hsan_lsw_control_resume resume = { 0 };
+    unsigned long flags;
+    bool retained, activation_failed = false;
+    u64 generation;
+    int ret, end_ret, control_errno;
 
+    spin_lock_irqsave(&p->tx_lock, flags);
+    retained = p->dma_ever_started;
+    generation = p->control_pause_generation;
+    p->dma_lifecycle.operation_begin_ns = ktime_get_ns();
+    p->dma_lifecycle.operation_end_ns = 0;
+    if (retained)
+        p->dma_lifecycle.resume_attempts++;
+    hsan_dma_phase_locked(p, retained ? HSAN_DMA_RESUMING :
+                                       HSAN_DMA_STARTING, 0);
+    spin_unlock_irqrestore(&p->tx_lock, flags);
     WRITE_ONCE(p->open_attempts, READ_ONCE(p->open_attempts) + 1);
     WRITE_ONCE(p->open_last_errno, 0);
+
+    /* Retained resume excludes complete control transactions through
+     * preflight and publication. It never starts/disconnects PHYLIB.
+     * Cold open instead keeps individual transaction guards: holding
+     * control across phy_start/disconnect would invert phydev->lock
+     * against adjust_link -> GEMAC -> control admission.
+     */
+    ret = retained ? hsan_lsw_control_resume_begin(p, generation, &resume) : 0;
+    control_errno = ret;
+    if (ret) {
+        if (retained) {
+            /* A stale owner/generation is a broken CPU protocol, not a
+             * retryable PHY/readiness failure after valid admission.
+             */
+            spin_lock_irqsave(&p->tx_lock, flags);
+            hsan_quarantine_datapath_locked(p, HSAN_DMA_FAULT_CONTROL_PROTOCOL,
+                                            "retained control token is invalid");
+            spin_unlock_irqrestore(&p->tx_lock, flags);
+        }
+        goto record;
+    }
     ret = hsan_open_datapath(ndev);
+    if (retained) {
+        end_ret = hsan_lsw_control_resume_end(&resume, !ret);
+        control_errno = end_ret;
+        if (!ret && end_ret) {
+            ret = end_ret;
+            activation_failed = true;
+        }
+    }
+    /* A permanent fence may arrive after ring publication. The token
+     * has already been released; only now may we wait for IRQ/work/NAPI.
+     * Never cancel a worker while retaining the gate it may be waiting on.
+     */
+    if (!ret) {
+        spin_lock_irqsave(&p->tx_lock, flags);
+        if (!READ_ONCE(p->active) ||
+            test_bit(HSAN_FAULT_DATAPATH, &p->fault_flags) ||
+            hsan_lsw_dp_fam_cpu_fenced()) {
+            ret = -ESHUTDOWN;
+            activation_failed = true;
+        }
+        spin_unlock_irqrestore(&p->tx_lock, flags);
+    }
+    if (activation_failed) {
+        spin_lock_irqsave(&p->tx_lock, flags);
+        hsan_quarantine_datapath_locked(p, HSAN_DMA_FAULT_FAM_EXTERNAL_FENCE,
+                                        "control gate refused resume activation");
+        spin_unlock_irqrestore(&p->tx_lock, flags);
+        hsan_stop(ndev);
+    }
+record:
     WRITE_ONCE(p->open_last_errno, ret < 0 ? -ret : 0);
+    spin_lock_irqsave(&p->tx_lock, flags);
+    p->control_last_errno = control_errno;
+    p->dma_lifecycle.operation_end_ns = ktime_get_ns();
+    if (ret) {
+        enum hsan_dma_phase phase;
+
+        /* Pre-publication rejection may be retried against the same
+         * retained owner/generation. No error releases the DMA mappings.
+         */
+        if (!p->dma_ever_started)
+            phase = HSAN_DMA_ERROR_UNPUBLISHED;
+        else if (p->soft_paused && p->control_paused &&
+                 !test_bit(HSAN_FAULT_DATAPATH, &p->fault_flags) &&
+                 !hsan_lsw_dp_fam_cpu_fenced())
+            phase = HSAN_DMA_PAUSED_RETAINED;
+        else
+            phase = HSAN_DMA_ERROR_RETAINED;
+        hsan_dma_phase_locked(p, phase, ret);
+    } else {
+        p->control_paused = false;
+        if (READ_ONCE(p->active) &&
+            !test_bit(HSAN_FAULT_DATAPATH, &p->fault_flags) &&
+            !hsan_lsw_dp_fam_cpu_fenced()) {
+            if (retained)
+                p->dma_lifecycle.resume_completed++;
+            hsan_dma_phase_locked(p, HSAN_DMA_RUNNING, 0);
+        }
+        else if (!test_bit(HSAN_FAULT_DATAPATH, &p->fault_flags)) {
+            /* A new external fence after the success check is a runtime
+             * quarantine; reflect it without publishing stale RUNNING.
+             */
+            hsan_quarantine_datapath_locked(p, HSAN_DMA_FAULT_FAM_EXTERNAL_FENCE,
+                                            "external fence after open admission");
+        }
+        /* An asynchronous quarantine already records ERROR_RETAINED. */
+    }
+    spin_unlock_irqrestore(&p->tx_lock, flags);
     if (ret)
-        netdev_err(ndev, "Stage79 open failed: stage=%u errno=%d\n",
+        netdev_err(ndev, "PIE open failed: stage=%u errno=%d\n",
                    p->open_stage, ret);
     return ret;
 }
@@ -3943,21 +4175,51 @@ static void hsan_record_stop_pointers(struct hsan_v300 *p)
      * still DMA into these coherent rings. These are NON-ATOMIC observed
      * fields, NOT a CPU/HW ownership transfer or safe-unmap test.
      */
-    dma_rmb();
     for (ch = 0; ch < p->rx_channels; ch++) {
         struct hsan_v300_rx_queue *q = &p->rxq[ch];
+        struct hsan_rx_stop_ledger_sample sample = { 0 };
+        struct hsan_pie_rx_ledger ledger;
 
+        sample.begin_ns = ktime_get_ns();
+        sample.hw_rptr = (u16)hsan_r32(p,
+                                      hsan_rx_chan_reg(ch, HSAN_CH_RPTR));
+        sample.error = hsan_pie_rx_ledger_decode(q->rx_count, q->rx_cons,
+                                                q->rx_prod, sample.hw_rptr,
+                                                &ledger);
+        dma_rmb();
         for (i = 0; i < q->rx_count; i++) {
+            enum hsan_pie_rx_slot_class slot_class =
+                HSAN_PIE_RX_SLOT_UNCLASSIFIED;
             u32 addr;
 
-            if (!q->rx[i].buffer)
+            if (!sample.error)
+                slot_class = hsan_pie_rx_ledger_classify(&ledger, i);
+            sample.slots[slot_class]++;
+            if (!q->rx[i].buffer) {
+                sample.missing_buffer++;
                 continue;
-            if (READ_ONCE(hsan_rx_desc(q, i)[3]) & BIT(2))
+            }
+            if (READ_ONCE(hsan_rx_desc(q, i)[3]) & BIT(2)) {
                 p->stop_rx_hw_owned_seen++;
+                sample.owner_set[slot_class]++;
+            }
             addr = get_unaligned_le32(hsan_rx_desc(q, i) + 4);
-            if (addr != (u32)q->rx[i].dma && addr != 0)
+            if (!addr)
+                sample.zero_address++;
+            /* All allocated slots, including the gap, were initialized
+             * with their DMA address. Zero is not an exemption from the
+             * exact-address diagnostic (a genuine DMA address 0 matches).
+             */
+            if (addr != (u32)q->rx[i].dma)
                 p->stop_rx_desc_addr_mismatch++;
         }
+        sample.end_ns = ktime_get_ns();
+        /* Publish one completed software sample. The hardware cursor and
+         * descriptor reads within it are deliberately not called atomic.
+         */
+        spin_lock_irqsave(&p->tx_lock, flags);
+        q->stop_ledger = sample;
+        spin_unlock_irqrestore(&p->tx_lock, flags);
     }
     for (i = 0; i < p->tx_count; i++) {
         if (!p->tx[i].buffer)
@@ -4052,6 +4314,9 @@ static int hsan_stop(struct net_device *ndev)
     struct hsan_v300 *p = netdev_priv(ndev);
     unsigned long flags;
     unsigned int ch;
+    bool irq_synchronized = false;
+    u64 control_generation = 0;
+    int control_ret = 0;
     bool retain = p->dma_ever_started &&
                   of_property_read_bool(p->dev->of_node,
                         "hsan,experimental-retain-dma-on-down") &&
@@ -4060,7 +4325,18 @@ static int hsan_stop(struct net_device *ndev)
 
     netif_tx_disable(ndev);
     spin_lock_irqsave(&p->tx_lock, flags);
+    /* Retained admission sampled before tx_lock can be invalidated by
+     * a runtime quarantine. Recheck at the actual publication boundary.
+     */
+    retain = retain && !test_bit(HSAN_FAULT_DATAPATH, &p->fault_flags) &&
+             !hsan_lsw_dp_fam_cpu_fenced();
+    p->dma_lifecycle.operation_begin_ns = ktime_get_ns();
+    p->dma_lifecycle.operation_end_ns = 0;
+    p->dma_lifecycle.pause_attempts++;
+    hsan_dma_phase_locked(p, HSAN_DMA_STOPPING, 0);
+    WRITE_ONCE(p->soft_paused, false);
     WRITE_ONCE(p->active, false);
+    p->stop_irq_synchronized = false;
     p->gro_auto_stopping = true;
     if (p->dma_ever_started && !retain) {
         hsan_lsw_dp_fam_stop_fence();
@@ -4077,7 +4353,7 @@ static int hsan_stop(struct net_device *ndev)
         phy_disconnect(ndev->phydev);
         p->phy_connected = false;
     }
-    /* Synchronize every installed physical IRQ, then all four NAPIs.
+    /* Synchronize every installed physical IRQ, then every enabled NAPI.
      * These CPU drains do not establish a hardware DMA STOP ACK.
      */
     for (ch = 0; ch < p->rx_channels; ch++) {
@@ -4085,12 +4361,27 @@ static int hsan_stop(struct net_device *ndev)
 
         if (q->irq_ok) {
             synchronize_irq(q->irq);
-            p->stop_irq_synchronized = true;
+            irq_synchronized = true;
         }
     }
     hsan_disable_owned_napi(p);
     cancel_delayed_work_sync(&p->gro_auto_work);
+    /* Workers have ended before we take the sleeping control gate. It
+     * waits for already-admitted PFE/DP/CSR batches and then prevents new
+     * table commands, including command-based diagnostic reads.
+     */
+    if (retain)
+        control_ret = hsan_lsw_control_pause(p, &control_generation);
     spin_lock_irqsave(&p->tx_lock, flags);
+    p->control_last_errno = control_ret;
+    if (retain && !control_ret) {
+        p->control_pause_generation = control_generation;
+        p->control_paused = true;
+    } else if (retain) {
+        hsan_quarantine_datapath_locked(p, HSAN_DMA_FAULT_FAM_EXTERNAL_FENCE,
+                                        "control transactions could not pause");
+    }
+    p->stop_irq_synchronized = irq_synchronized;
     p->stop_rx_irq_masked_channels = 0;
     p->stop_rx_irq_pending_channels = 0;
     for (ch = 0; ch < p->rx_channels; ch++) {
@@ -4118,10 +4409,45 @@ static int hsan_stop(struct net_device *ndev)
     netif_carrier_off(ndev);
     if (p->dma_ever_started)
         hsan_record_stop_pointers(p);
+    spin_lock_irqsave(&p->tx_lock, flags);
     WRITE_ONCE(p->hardware_quiesced, false);
-    WRITE_ONCE(p->soft_paused, retain &&
+    p->stop_foreign_tx_bitmap =
+        hsan_sample_foreign_tx(p, p->foreign_tx_words);
+    p->foreign_tx_checks++;
+    p->foreign_tx_last_bitmap = p->stop_foreign_tx_bitmap;
+    if (p->stop_foreign_tx_bitmap) {
+        p->foreign_tx_faults++;
+        hsan_quarantine_datapath_locked(p, HSAN_DMA_FAULT_FOREIGN_TX_ACTIVE,
+                                        "unowned TX1..7 state visible at pause");
+    }
+    /* IRQ-mask/RX-global readback proves only that our stop writes were
+     * observed. Failure is nevertheless sufficient to reject resume.
+     * It must not be reported as a successful retained pause.
+     */
+    if (!p->stop_irq_masked_readback ||
+        !p->stop_rx_global_disabled_readback)
+        hsan_quarantine_datapath_locked(p, HSAN_DMA_FAULT_STOP_READBACK,
+                                        "PIE pause MMIO readback failed");
+    WRITE_ONCE(p->soft_paused, retain && !control_ret && p->control_paused &&
+        p->stop_irq_masked_readback && p->stop_rx_global_disabled_readback &&
         !test_bit(HSAN_FAULT_DATAPATH, &p->fault_flags) &&
         !hsan_lsw_dp_fam_cpu_fenced());
+    p->dma_lifecycle.operation_end_ns = ktime_get_ns();
+    if (p->soft_paused) {
+        p->dma_lifecycle.pause_completed++;
+        hsan_dma_phase_locked(p, HSAN_DMA_PAUSED_RETAINED, 0);
+    } else if (p->dma_ever_started) {
+        hsan_dma_phase_locked(p, HSAN_DMA_ERROR_RETAINED,
+            control_ret ? control_ret :
+            test_bit(HSAN_FAULT_DATAPATH, &p->fault_flags) ? -EIO :
+                                                         -ESHUTDOWN);
+    } else {
+        hsan_dma_phase_locked(p,
+            test_bit(HSAN_FAULT_DATAPATH, &p->fault_flags) ?
+            HSAN_DMA_ERROR_UNPUBLISHED : HSAN_DMA_UNPUBLISHED,
+            test_bit(HSAN_FAULT_DATAPATH, &p->fault_flags) ? -EIO : 0);
+    }
+    spin_unlock_irqrestore(&p->tx_lock, flags);
     dev_warn(p->dev,
         "PIE STOP CPU: FAM fence=%d IRQ handlers synchronized=%d RX masks=%#x RX-global-off=%d RX pending=%#x; hardware DMA drain unverified, all mappings retained\n",
         p->stop_fam_cpu_fenced, p->stop_irq_synchronized,
@@ -5191,11 +5517,786 @@ static const char hsan_ethtool_stat_names[][ETH_GSTRING_LEN] = {
     "gemac_rx_fcs_err", "gemac_rx_fifo_overrun",
     "gemac_tx_crc_err", "gemac_tx_fifo_underrun",
     "gemac_tx_byte_err",
+    "eqm_q81_t81_w4",
+    "eqm_q81_t80_w0",
+    "eqm_q81_t80_w1",
+    "eqm_q81_cell",
+    "eqm_q81_priv",
+    "eqm_q81_in_out_delta",
+    "eqm_q81_out36",
+    "eqm_q81_in_derived",
+    "eqm_q81_drop_sum",
+    "eqm_q81_sample_span_ns",
+    "eqm_q82_t81_w4",
+    "eqm_q82_t80_w0",
+    "eqm_q82_t80_w1",
+    "eqm_q82_cell",
+    "eqm_q82_priv",
+    "eqm_q82_in_out_delta",
+    "eqm_q82_out36",
+    "eqm_q82_in_derived",
+    "eqm_q82_drop_sum",
+    "eqm_q82_sample_span_ns",
+    "eqm_q83_t81_w4",
+    "eqm_q83_t80_w0",
+    "eqm_q83_t80_w1",
+    "eqm_q83_cell",
+    "eqm_q83_priv",
+    "eqm_q83_in_out_delta",
+    "eqm_q83_out36",
+    "eqm_q83_in_derived",
+    "eqm_q83_drop_sum",
+    "eqm_q83_sample_span_ns",
+    "eqm_q84_t81_w4",
+    "eqm_q84_t80_w0",
+    "eqm_q84_t80_w1",
+    "eqm_q84_cell",
+    "eqm_q84_priv",
+    "eqm_q84_in_out_delta",
+    "eqm_q84_out36",
+    "eqm_q84_in_derived",
+    "eqm_q84_drop_sum",
+    "eqm_q84_sample_span_ns",
+    "eqm_q85_t81_w4",
+    "eqm_q85_t80_w0",
+    "eqm_q85_t80_w1",
+    "eqm_q85_cell",
+    "eqm_q85_priv",
+    "eqm_q85_in_out_delta",
+    "eqm_q85_out36",
+    "eqm_q85_in_derived",
+    "eqm_q85_drop_sum",
+    "eqm_q85_sample_span_ns",
+    "eqm_q86_t81_w4",
+    "eqm_q86_t80_w0",
+    "eqm_q86_t80_w1",
+    "eqm_q86_cell",
+    "eqm_q86_priv",
+    "eqm_q86_in_out_delta",
+    "eqm_q86_out36",
+    "eqm_q86_in_derived",
+    "eqm_q86_drop_sum",
+    "eqm_q86_sample_span_ns",
+    "eqm_q87_t81_w4",
+    "eqm_q87_t80_w0",
+    "eqm_q87_t80_w1",
+    "eqm_q87_cell",
+    "eqm_q87_priv",
+    "eqm_q87_in_out_delta",
+    "eqm_q87_out36",
+    "eqm_q87_in_derived",
+    "eqm_q87_drop_sum",
+    "eqm_q87_sample_span_ns",
+    "eqm_q88_t81_w4",
+    "eqm_q88_t80_w0",
+    "eqm_q88_t80_w1",
+    "eqm_q88_cell",
+    "eqm_q88_priv",
+    "eqm_q88_in_out_delta",
+    "eqm_q88_out36",
+    "eqm_q88_in_derived",
+    "eqm_q88_drop_sum",
+    "eqm_q88_sample_span_ns",
+    "eqm_q129_t81_w4",
+    "eqm_q129_t80_w0",
+    "eqm_q129_t80_w1",
+    "eqm_q129_cell",
+    "eqm_q129_priv",
+    "eqm_q129_in_out_delta",
+    "eqm_q129_out36",
+    "eqm_q129_in_derived",
+    "eqm_q129_drop_sum",
+    "eqm_q129_sample_span_ns",
+    "eqm_q130_t81_w4",
+    "eqm_q130_t80_w0",
+    "eqm_q130_t80_w1",
+    "eqm_q130_cell",
+    "eqm_q130_priv",
+    "eqm_q130_in_out_delta",
+    "eqm_q130_out36",
+    "eqm_q130_in_derived",
+    "eqm_q130_drop_sum",
+    "eqm_q130_sample_span_ns",
+    "eqm_q131_t81_w4",
+    "eqm_q131_t80_w0",
+    "eqm_q131_t80_w1",
+    "eqm_q131_cell",
+    "eqm_q131_priv",
+    "eqm_q131_in_out_delta",
+    "eqm_q131_out36",
+    "eqm_q131_in_derived",
+    "eqm_q131_drop_sum",
+    "eqm_q131_sample_span_ns",
+    "eqm_q132_t81_w4",
+    "eqm_q132_t80_w0",
+    "eqm_q132_t80_w1",
+    "eqm_q132_cell",
+    "eqm_q132_priv",
+    "eqm_q132_in_out_delta",
+    "eqm_q132_out36",
+    "eqm_q132_in_derived",
+    "eqm_q132_drop_sum",
+    "eqm_q132_sample_span_ns",
+    "eqm_q133_t81_w4",
+    "eqm_q133_t80_w0",
+    "eqm_q133_t80_w1",
+    "eqm_q133_cell",
+    "eqm_q133_priv",
+    "eqm_q133_in_out_delta",
+    "eqm_q133_out36",
+    "eqm_q133_in_derived",
+    "eqm_q133_drop_sum",
+    "eqm_q133_sample_span_ns",
+    "eqm_q134_t81_w4",
+    "eqm_q134_t80_w0",
+    "eqm_q134_t80_w1",
+    "eqm_q134_cell",
+    "eqm_q134_priv",
+    "eqm_q134_in_out_delta",
+    "eqm_q134_out36",
+    "eqm_q134_in_derived",
+    "eqm_q134_drop_sum",
+    "eqm_q134_sample_span_ns",
+    "eqm_q135_t81_w4",
+    "eqm_q135_t80_w0",
+    "eqm_q135_t80_w1",
+    "eqm_q135_cell",
+    "eqm_q135_priv",
+    "eqm_q135_in_out_delta",
+    "eqm_q135_out36",
+    "eqm_q135_in_derived",
+    "eqm_q135_drop_sum",
+    "eqm_q135_sample_span_ns",
+    "eqm_q136_t81_w4",
+    "eqm_q136_t80_w0",
+    "eqm_q136_t80_w1",
+    "eqm_q136_cell",
+    "eqm_q136_priv",
+    "eqm_q136_in_out_delta",
+    "eqm_q136_out36",
+    "eqm_q136_in_derived",
+    "eqm_q136_drop_sum",
+    "eqm_q136_sample_span_ns",
+    "eqm_q137_t81_w4",
+    "eqm_q137_t80_w0",
+    "eqm_q137_t80_w1",
+    "eqm_q137_cell",
+    "eqm_q137_priv",
+    "eqm_q137_in_out_delta",
+    "eqm_q137_out36",
+    "eqm_q137_in_derived",
+    "eqm_q137_drop_sum",
+    "eqm_q137_sample_span_ns",
+    "eqm_q138_t81_w4",
+    "eqm_q138_t80_w0",
+    "eqm_q138_t80_w1",
+    "eqm_q138_cell",
+    "eqm_q138_priv",
+    "eqm_q138_in_out_delta",
+    "eqm_q138_out36",
+    "eqm_q138_in_derived",
+    "eqm_q138_drop_sum",
+    "eqm_q138_sample_span_ns",
+    "eqm_q139_t81_w4",
+    "eqm_q139_t80_w0",
+    "eqm_q139_t80_w1",
+    "eqm_q139_cell",
+    "eqm_q139_priv",
+    "eqm_q139_in_out_delta",
+    "eqm_q139_out36",
+    "eqm_q139_in_derived",
+    "eqm_q139_drop_sum",
+    "eqm_q139_sample_span_ns",
+    "eqm_q140_t81_w4",
+    "eqm_q140_t80_w0",
+    "eqm_q140_t80_w1",
+    "eqm_q140_cell",
+    "eqm_q140_priv",
+    "eqm_q140_in_out_delta",
+    "eqm_q140_out36",
+    "eqm_q140_in_derived",
+    "eqm_q140_drop_sum",
+    "eqm_q140_sample_span_ns",
+    "eqm_q141_t81_w4",
+    "eqm_q141_t80_w0",
+    "eqm_q141_t80_w1",
+    "eqm_q141_cell",
+    "eqm_q141_priv",
+    "eqm_q141_in_out_delta",
+    "eqm_q141_out36",
+    "eqm_q141_in_derived",
+    "eqm_q141_drop_sum",
+    "eqm_q141_sample_span_ns",
+    "eqm_q142_t81_w4",
+    "eqm_q142_t80_w0",
+    "eqm_q142_t80_w1",
+    "eqm_q142_cell",
+    "eqm_q142_priv",
+    "eqm_q142_in_out_delta",
+    "eqm_q142_out36",
+    "eqm_q142_in_derived",
+    "eqm_q142_drop_sum",
+    "eqm_q142_sample_span_ns",
+    "eqm_q143_t81_w4",
+    "eqm_q143_t80_w0",
+    "eqm_q143_t80_w1",
+    "eqm_q143_cell",
+    "eqm_q143_priv",
+    "eqm_q143_in_out_delta",
+    "eqm_q143_out36",
+    "eqm_q143_in_derived",
+    "eqm_q143_drop_sum",
+    "eqm_q143_sample_span_ns",
+    "eqm_q144_t81_w4",
+    "eqm_q144_t80_w0",
+    "eqm_q144_t80_w1",
+    "eqm_q144_cell",
+    "eqm_q144_priv",
+    "eqm_q144_in_out_delta",
+    "eqm_q144_out36",
+    "eqm_q144_in_derived",
+    "eqm_q144_drop_sum",
+    "eqm_q144_sample_span_ns",
+    "eqm_q145_t81_w4",
+    "eqm_q145_t80_w0",
+    "eqm_q145_t80_w1",
+    "eqm_q145_cell",
+    "eqm_q145_priv",
+    "eqm_q145_in_out_delta",
+    "eqm_q145_out36",
+    "eqm_q145_in_derived",
+    "eqm_q145_drop_sum",
+    "eqm_q145_sample_span_ns",
+    "eqm_q146_t81_w4",
+    "eqm_q146_t80_w0",
+    "eqm_q146_t80_w1",
+    "eqm_q146_cell",
+    "eqm_q146_priv",
+    "eqm_q146_in_out_delta",
+    "eqm_q146_out36",
+    "eqm_q146_in_derived",
+    "eqm_q146_drop_sum",
+    "eqm_q146_sample_span_ns",
+    "eqm_q147_t81_w4",
+    "eqm_q147_t80_w0",
+    "eqm_q147_t80_w1",
+    "eqm_q147_cell",
+    "eqm_q147_priv",
+    "eqm_q147_in_out_delta",
+    "eqm_q147_out36",
+    "eqm_q147_in_derived",
+    "eqm_q147_drop_sum",
+    "eqm_q147_sample_span_ns",
+    "eqm_q148_t81_w4",
+    "eqm_q148_t80_w0",
+    "eqm_q148_t80_w1",
+    "eqm_q148_cell",
+    "eqm_q148_priv",
+    "eqm_q148_in_out_delta",
+    "eqm_q148_out36",
+    "eqm_q148_in_derived",
+    "eqm_q148_drop_sum",
+    "eqm_q148_sample_span_ns",
+    "eqm_q149_t81_w4",
+    "eqm_q149_t80_w0",
+    "eqm_q149_t80_w1",
+    "eqm_q149_cell",
+    "eqm_q149_priv",
+    "eqm_q149_in_out_delta",
+    "eqm_q149_out36",
+    "eqm_q149_in_derived",
+    "eqm_q149_drop_sum",
+    "eqm_q149_sample_span_ns",
+    "eqm_q150_t81_w4",
+    "eqm_q150_t80_w0",
+    "eqm_q150_t80_w1",
+    "eqm_q150_cell",
+    "eqm_q150_priv",
+    "eqm_q150_in_out_delta",
+    "eqm_q150_out36",
+    "eqm_q150_in_derived",
+    "eqm_q150_drop_sum",
+    "eqm_q150_sample_span_ns",
+    "eqm_q151_t81_w4",
+    "eqm_q151_t80_w0",
+    "eqm_q151_t80_w1",
+    "eqm_q151_cell",
+    "eqm_q151_priv",
+    "eqm_q151_in_out_delta",
+    "eqm_q151_out36",
+    "eqm_q151_in_derived",
+    "eqm_q151_drop_sum",
+    "eqm_q151_sample_span_ns",
+    "eqm_q152_t81_w4",
+    "eqm_q152_t80_w0",
+    "eqm_q152_t80_w1",
+    "eqm_q152_cell",
+    "eqm_q152_priv",
+    "eqm_q152_in_out_delta",
+    "eqm_q152_out36",
+    "eqm_q152_in_derived",
+    "eqm_q152_drop_sum",
+    "eqm_q152_sample_span_ns",
+    "eqm_q153_t81_w4",
+    "eqm_q153_t80_w0",
+    "eqm_q153_t80_w1",
+    "eqm_q153_cell",
+    "eqm_q153_priv",
+    "eqm_q153_in_out_delta",
+    "eqm_q153_out36",
+    "eqm_q153_in_derived",
+    "eqm_q153_drop_sum",
+    "eqm_q153_sample_span_ns",
+    "eqm_q154_t81_w4",
+    "eqm_q154_t80_w0",
+    "eqm_q154_t80_w1",
+    "eqm_q154_cell",
+    "eqm_q154_priv",
+    "eqm_q154_in_out_delta",
+    "eqm_q154_out36",
+    "eqm_q154_in_derived",
+    "eqm_q154_drop_sum",
+    "eqm_q154_sample_span_ns",
+    "eqm_q155_t81_w4",
+    "eqm_q155_t80_w0",
+    "eqm_q155_t80_w1",
+    "eqm_q155_cell",
+    "eqm_q155_priv",
+    "eqm_q155_in_out_delta",
+    "eqm_q155_out36",
+    "eqm_q155_in_derived",
+    "eqm_q155_drop_sum",
+    "eqm_q155_sample_span_ns",
+    "eqm_q156_t81_w4",
+    "eqm_q156_t80_w0",
+    "eqm_q156_t80_w1",
+    "eqm_q156_cell",
+    "eqm_q156_priv",
+    "eqm_q156_in_out_delta",
+    "eqm_q156_out36",
+    "eqm_q156_in_derived",
+    "eqm_q156_drop_sum",
+    "eqm_q156_sample_span_ns",
+    "eqm_q157_t81_w4",
+    "eqm_q157_t80_w0",
+    "eqm_q157_t80_w1",
+    "eqm_q157_cell",
+    "eqm_q157_priv",
+    "eqm_q157_in_out_delta",
+    "eqm_q157_out36",
+    "eqm_q157_in_derived",
+    "eqm_q157_drop_sum",
+    "eqm_q157_sample_span_ns",
+    "eqm_q158_t81_w4",
+    "eqm_q158_t80_w0",
+    "eqm_q158_t80_w1",
+    "eqm_q158_cell",
+    "eqm_q158_priv",
+    "eqm_q158_in_out_delta",
+    "eqm_q158_out36",
+    "eqm_q158_in_derived",
+    "eqm_q158_drop_sum",
+    "eqm_q158_sample_span_ns",
+    "eqm_q159_t81_w4",
+    "eqm_q159_t80_w0",
+    "eqm_q159_t80_w1",
+    "eqm_q159_cell",
+    "eqm_q159_priv",
+    "eqm_q159_in_out_delta",
+    "eqm_q159_out36",
+    "eqm_q159_in_derived",
+    "eqm_q159_drop_sum",
+    "eqm_q159_sample_span_ns",
+    "eqm_q160_t81_w4",
+    "eqm_q160_t80_w0",
+    "eqm_q160_t80_w1",
+    "eqm_q160_cell",
+    "eqm_q160_priv",
+    "eqm_q160_in_out_delta",
+    "eqm_q160_out36",
+    "eqm_q160_in_derived",
+    "eqm_q160_drop_sum",
+    "eqm_q160_sample_span_ns",
+    "eqm_q161_t81_w4",
+    "eqm_q161_t80_w0",
+    "eqm_q161_t80_w1",
+    "eqm_q161_cell",
+    "eqm_q161_priv",
+    "eqm_q161_in_out_delta",
+    "eqm_q161_out36",
+    "eqm_q161_in_derived",
+    "eqm_q161_drop_sum",
+    "eqm_q161_sample_span_ns",
+    "eqm_q162_t81_w4",
+    "eqm_q162_t80_w0",
+    "eqm_q162_t80_w1",
+    "eqm_q162_cell",
+    "eqm_q162_priv",
+    "eqm_q162_in_out_delta",
+    "eqm_q162_out36",
+    "eqm_q162_in_derived",
+    "eqm_q162_drop_sum",
+    "eqm_q162_sample_span_ns",
+    "eqm_q163_t81_w4",
+    "eqm_q163_t80_w0",
+    "eqm_q163_t80_w1",
+    "eqm_q163_cell",
+    "eqm_q163_priv",
+    "eqm_q163_in_out_delta",
+    "eqm_q163_out36",
+    "eqm_q163_in_derived",
+    "eqm_q163_drop_sum",
+    "eqm_q163_sample_span_ns",
+    "eqm_q164_t81_w4",
+    "eqm_q164_t80_w0",
+    "eqm_q164_t80_w1",
+    "eqm_q164_cell",
+    "eqm_q164_priv",
+    "eqm_q164_in_out_delta",
+    "eqm_q164_out36",
+    "eqm_q164_in_derived",
+    "eqm_q164_drop_sum",
+    "eqm_q164_sample_span_ns",
+    "eqm_q165_t81_w4",
+    "eqm_q165_t80_w0",
+    "eqm_q165_t80_w1",
+    "eqm_q165_cell",
+    "eqm_q165_priv",
+    "eqm_q165_in_out_delta",
+    "eqm_q165_out36",
+    "eqm_q165_in_derived",
+    "eqm_q165_drop_sum",
+    "eqm_q165_sample_span_ns",
+    "eqm_q166_t81_w4",
+    "eqm_q166_t80_w0",
+    "eqm_q166_t80_w1",
+    "eqm_q166_cell",
+    "eqm_q166_priv",
+    "eqm_q166_in_out_delta",
+    "eqm_q166_out36",
+    "eqm_q166_in_derived",
+    "eqm_q166_drop_sum",
+    "eqm_q166_sample_span_ns",
+    "eqm_q167_t81_w4",
+    "eqm_q167_t80_w0",
+    "eqm_q167_t80_w1",
+    "eqm_q167_cell",
+    "eqm_q167_priv",
+    "eqm_q167_in_out_delta",
+    "eqm_q167_out36",
+    "eqm_q167_in_derived",
+    "eqm_q167_drop_sum",
+    "eqm_q167_sample_span_ns",
+    "eqm_q168_t81_w4",
+    "eqm_q168_t80_w0",
+    "eqm_q168_t80_w1",
+    "eqm_q168_cell",
+    "eqm_q168_priv",
+    "eqm_q168_in_out_delta",
+    "eqm_q168_out36",
+    "eqm_q168_in_derived",
+    "eqm_q168_drop_sum",
+    "eqm_q168_sample_span_ns",
+    "eqm_q169_t81_w4",
+    "eqm_q169_t80_w0",
+    "eqm_q169_t80_w1",
+    "eqm_q169_cell",
+    "eqm_q169_priv",
+    "eqm_q169_in_out_delta",
+    "eqm_q169_out36",
+    "eqm_q169_in_derived",
+    "eqm_q169_drop_sum",
+    "eqm_q169_sample_span_ns",
+    "eqm_q170_t81_w4",
+    "eqm_q170_t80_w0",
+    "eqm_q170_t80_w1",
+    "eqm_q170_cell",
+    "eqm_q170_priv",
+    "eqm_q170_in_out_delta",
+    "eqm_q170_out36",
+    "eqm_q170_in_derived",
+    "eqm_q170_drop_sum",
+    "eqm_q170_sample_span_ns",
+    "eqm_q171_t81_w4",
+    "eqm_q171_t80_w0",
+    "eqm_q171_t80_w1",
+    "eqm_q171_cell",
+    "eqm_q171_priv",
+    "eqm_q171_in_out_delta",
+    "eqm_q171_out36",
+    "eqm_q171_in_derived",
+    "eqm_q171_drop_sum",
+    "eqm_q171_sample_span_ns",
+    "eqm_q172_t81_w4",
+    "eqm_q172_t80_w0",
+    "eqm_q172_t80_w1",
+    "eqm_q172_cell",
+    "eqm_q172_priv",
+    "eqm_q172_in_out_delta",
+    "eqm_q172_out36",
+    "eqm_q172_in_derived",
+    "eqm_q172_drop_sum",
+    "eqm_q172_sample_span_ns",
+    "eqm_q173_t81_w4",
+    "eqm_q173_t80_w0",
+    "eqm_q173_t80_w1",
+    "eqm_q173_cell",
+    "eqm_q173_priv",
+    "eqm_q173_in_out_delta",
+    "eqm_q173_out36",
+    "eqm_q173_in_derived",
+    "eqm_q173_drop_sum",
+    "eqm_q173_sample_span_ns",
+    "eqm_q174_t81_w4",
+    "eqm_q174_t80_w0",
+    "eqm_q174_t80_w1",
+    "eqm_q174_cell",
+    "eqm_q174_priv",
+    "eqm_q174_in_out_delta",
+    "eqm_q174_out36",
+    "eqm_q174_in_derived",
+    "eqm_q174_drop_sum",
+    "eqm_q174_sample_span_ns",
+    "eqm_q175_t81_w4",
+    "eqm_q175_t80_w0",
+    "eqm_q175_t80_w1",
+    "eqm_q175_cell",
+    "eqm_q175_priv",
+    "eqm_q175_in_out_delta",
+    "eqm_q175_out36",
+    "eqm_q175_in_derived",
+    "eqm_q175_drop_sum",
+    "eqm_q175_sample_span_ns",
+    "eqm_q176_t81_w4",
+    "eqm_q176_t80_w0",
+    "eqm_q176_t80_w1",
+    "eqm_q176_cell",
+    "eqm_q176_priv",
+    "eqm_q176_in_out_delta",
+    "eqm_q176_out36",
+    "eqm_q176_in_derived",
+    "eqm_q176_drop_sum",
+    "eqm_q176_sample_span_ns",
+    "eqm_q33_t81_w4",
+    "eqm_q33_t80_w0",
+    "eqm_q33_t80_w1",
+    "eqm_q33_cell",
+    "eqm_q33_priv",
+    "eqm_q33_in_out_delta",
+    "eqm_q33_out36",
+    "eqm_q33_in_derived",
+    "eqm_q33_drop_sum",
+    "eqm_q33_sample_span_ns",
+    "eqm_q34_t81_w4",
+    "eqm_q34_t80_w0",
+    "eqm_q34_t80_w1",
+    "eqm_q34_cell",
+    "eqm_q34_priv",
+    "eqm_q34_in_out_delta",
+    "eqm_q34_out36",
+    "eqm_q34_in_derived",
+    "eqm_q34_drop_sum",
+    "eqm_q34_sample_span_ns",
+    "eqm_q35_t81_w4",
+    "eqm_q35_t80_w0",
+    "eqm_q35_t80_w1",
+    "eqm_q35_cell",
+    "eqm_q35_priv",
+    "eqm_q35_in_out_delta",
+    "eqm_q35_out36",
+    "eqm_q35_in_derived",
+    "eqm_q35_drop_sum",
+    "eqm_q35_sample_span_ns",
+    "eqm_q36_t81_w4",
+    "eqm_q36_t80_w0",
+    "eqm_q36_t80_w1",
+    "eqm_q36_cell",
+    "eqm_q36_priv",
+    "eqm_q36_in_out_delta",
+    "eqm_q36_out36",
+    "eqm_q36_in_derived",
+    "eqm_q36_drop_sum",
+    "eqm_q36_sample_span_ns",
+    "eqm_q37_t81_w4",
+    "eqm_q37_t80_w0",
+    "eqm_q37_t80_w1",
+    "eqm_q37_cell",
+    "eqm_q37_priv",
+    "eqm_q37_in_out_delta",
+    "eqm_q37_out36",
+    "eqm_q37_in_derived",
+    "eqm_q37_drop_sum",
+    "eqm_q37_sample_span_ns",
+    "eqm_q38_t81_w4",
+    "eqm_q38_t80_w0",
+    "eqm_q38_t80_w1",
+    "eqm_q38_cell",
+    "eqm_q38_priv",
+    "eqm_q38_in_out_delta",
+    "eqm_q38_out36",
+    "eqm_q38_in_derived",
+    "eqm_q38_drop_sum",
+    "eqm_q38_sample_span_ns",
+    "eqm_q39_t81_w4",
+    "eqm_q39_t80_w0",
+    "eqm_q39_t80_w1",
+    "eqm_q39_cell",
+    "eqm_q39_priv",
+    "eqm_q39_in_out_delta",
+    "eqm_q39_out36",
+    "eqm_q39_in_derived",
+    "eqm_q39_drop_sum",
+    "eqm_q39_sample_span_ns",
+    "eqm_q40_t81_w4",
+    "eqm_q40_t80_w0",
+    "eqm_q40_t80_w1",
+    "eqm_q40_cell",
+    "eqm_q40_priv",
+    "eqm_q40_in_out_delta",
+    "eqm_q40_out36",
+    "eqm_q40_in_derived",
+    "eqm_q40_drop_sum",
+    "eqm_q40_sample_span_ns",
+    "eqm_diag_begin_ns",
+    "eqm_diag_end_ns",
+    "eqm_diag_valid_rows",
+    "eqm_diag_errno",
+    "eqm_diag_active_or_paused",
+    "rx0_stop_error",
+    "rx0_stop_ledger_rptr",
+    "rx0_stop_completed",
+    "rx0_stop_available",
+    "rx0_stop_deferred",
+    "rx0_stop_gap",
+    "rx0_stop_unclassified",
+    "rx0_stop_own_completed",
+    "rx0_stop_own_available",
+    "rx0_stop_own_deferred",
+    "rx0_stop_own_gap",
+    "rx0_stop_own_unclassified",
+    "rx0_stop_zero_address",
+    "rx0_stop_missing_buffer",
+    "rx0_stop_sample_span_ns",
+    "rx1_stop_error",
+    "rx1_stop_ledger_rptr",
+    "rx1_stop_completed",
+    "rx1_stop_available",
+    "rx1_stop_deferred",
+    "rx1_stop_gap",
+    "rx1_stop_unclassified",
+    "rx1_stop_own_completed",
+    "rx1_stop_own_available",
+    "rx1_stop_own_deferred",
+    "rx1_stop_own_gap",
+    "rx1_stop_own_unclassified",
+    "rx1_stop_zero_address",
+    "rx1_stop_missing_buffer",
+    "rx1_stop_sample_span_ns",
+    "rx2_stop_error",
+    "rx2_stop_ledger_rptr",
+    "rx2_stop_completed",
+    "rx2_stop_available",
+    "rx2_stop_deferred",
+    "rx2_stop_gap",
+    "rx2_stop_unclassified",
+    "rx2_stop_own_completed",
+    "rx2_stop_own_available",
+    "rx2_stop_own_deferred",
+    "rx2_stop_own_gap",
+    "rx2_stop_own_unclassified",
+    "rx2_stop_zero_address",
+    "rx2_stop_missing_buffer",
+    "rx2_stop_sample_span_ns",
+    "rx3_stop_error",
+    "rx3_stop_ledger_rptr",
+    "rx3_stop_completed",
+    "rx3_stop_available",
+    "rx3_stop_deferred",
+    "rx3_stop_gap",
+    "rx3_stop_unclassified",
+    "rx3_stop_own_completed",
+    "rx3_stop_own_available",
+    "rx3_stop_own_deferred",
+    "rx3_stop_own_gap",
+    "rx3_stop_own_unclassified",
+    "rx3_stop_zero_address",
+    "rx3_stop_missing_buffer",
+    "rx3_stop_sample_span_ns",
+    "rx4_stop_error",
+    "rx4_stop_ledger_rptr",
+    "rx4_stop_completed",
+    "rx4_stop_available",
+    "rx4_stop_deferred",
+    "rx4_stop_gap",
+    "rx4_stop_unclassified",
+    "rx4_stop_own_completed",
+    "rx4_stop_own_available",
+    "rx4_stop_own_deferred",
+    "rx4_stop_own_gap",
+    "rx4_stop_own_unclassified",
+    "rx4_stop_zero_address",
+    "rx4_stop_missing_buffer",
+    "rx4_stop_sample_span_ns",
+    "rx5_stop_error",
+    "rx5_stop_ledger_rptr",
+    "rx5_stop_completed",
+    "rx5_stop_available",
+    "rx5_stop_deferred",
+    "rx5_stop_gap",
+    "rx5_stop_unclassified",
+    "rx5_stop_own_completed",
+    "rx5_stop_own_available",
+    "rx5_stop_own_deferred",
+    "rx5_stop_own_gap",
+    "rx5_stop_own_unclassified",
+    "rx5_stop_zero_address",
+    "rx5_stop_missing_buffer",
+    "rx5_stop_sample_span_ns",
+    "rx6_stop_error",
+    "rx6_stop_ledger_rptr",
+    "rx6_stop_completed",
+    "rx6_stop_available",
+    "rx6_stop_deferred",
+    "rx6_stop_gap",
+    "rx6_stop_unclassified",
+    "rx6_stop_own_completed",
+    "rx6_stop_own_available",
+    "rx6_stop_own_deferred",
+    "rx6_stop_own_gap",
+    "rx6_stop_own_unclassified",
+    "rx6_stop_zero_address",
+    "rx6_stop_missing_buffer",
+    "rx6_stop_sample_span_ns",
+    "rx7_stop_error",
+    "rx7_stop_ledger_rptr",
+    "rx7_stop_completed",
+    "rx7_stop_available",
+    "rx7_stop_deferred",
+    "rx7_stop_gap",
+    "rx7_stop_unclassified",
+    "rx7_stop_own_completed",
+    "rx7_stop_own_available",
+    "rx7_stop_own_deferred",
+    "rx7_stop_own_gap",
+    "rx7_stop_own_unclassified",
+    "rx7_stop_zero_address",
+    "rx7_stop_missing_buffer",
+    "rx7_stop_sample_span_ns",
 };
 #define HSAN_RX_WPTR_STATS_BASE (274 + 16 * HSAN_NET_RX_CHANNELS)
-static_assert(ARRAY_SIZE(hsan_ethtool_stat_names) == HSAN_RX_WPTR_STATS_BASE +
-              4 * HSAN_NET_RX_CHANNELS + 300 +
-              6 * HSAN_DP_DIAG_QUEUE_COUNT + 88 + 5);
+#define HSAN_LEGACY_STATS_COUNT (HSAN_RX_WPTR_STATS_BASE + \
+              4 * HSAN_NET_RX_CHANNELS + 300 + \
+              6 * HSAN_DP_DIAG_QUEUE_COUNT + 88 + 5)
+#define HSAN_EQM_DIAG_EXTRA_BASE HSAN_LEGACY_STATS_COUNT
+#define HSAN_EQM_DIAG_EXTRA_STRIDE 10U
+#define HSAN_EQM_DIAG_SUMMARY_BASE (HSAN_EQM_DIAG_EXTRA_BASE + \
+              HSAN_EQM_DIAG_EXTRA_STRIDE * HSAN_DP_QUEUE_DIAG_COUNT)
+#define HSAN_RX_LEDGER_STATS_BASE (HSAN_EQM_DIAG_SUMMARY_BASE + 5U)
+#define HSAN_RX_LEDGER_STATS_STRIDE 15U
+static_assert(HSAN_DP_DIAG_QUEUE_COUNT == HSAN_DP_QUEUE_DIAG_COUNT);
+static_assert(HSAN_OEM_RX_CHANNELS == 8U);
+static_assert(ARRAY_SIZE(hsan_ethtool_stat_names) == HSAN_RX_LEDGER_STATS_BASE +
+              HSAN_RX_LEDGER_STATS_STRIDE * HSAN_OEM_RX_CHANNELS);
 
 static void hsan_get_drvinfo(struct net_device *ndev,
                              struct ethtool_drvinfo *info)
@@ -5231,6 +6332,28 @@ static void hsan_get_ethtool_stats(struct net_device *ndev,
     memset(data, 0, sizeof(u64) * ARRAY_SIZE(hsan_ethtool_stat_names));
     data[196] = ktime_get_ns();
     spin_lock_irqsave(&p->tx_lock, flags);
+    for (ch = 0; ch < HSAN_OEM_RX_CHANNELS; ch++) {
+        const struct hsan_rx_stop_ledger_sample *sample = &p->rxq[ch].stop_ledger;
+        unsigned int base = HSAN_RX_LEDGER_STATS_BASE +
+                            ch * HSAN_RX_LEDGER_STATS_STRIDE;
+
+        data[base] = !sample->end_ns ? ENODATA :
+                     (sample->error < 0 ? -(s64)sample->error : 0);
+        data[base + 1] = sample->hw_rptr;
+        data[base + 2] = sample->slots[HSAN_PIE_RX_SLOT_CURSOR_COMPLETED];
+        data[base + 3] = sample->slots[HSAN_PIE_RX_SLOT_PUBLISHED_AVAILABLE];
+        data[base + 4] = sample->slots[HSAN_PIE_RX_SLOT_DEFERRED];
+        data[base + 5] = sample->slots[HSAN_PIE_RX_SLOT_GAP];
+        data[base + 6] = sample->slots[HSAN_PIE_RX_SLOT_UNCLASSIFIED];
+        data[base + 7] = sample->owner_set[HSAN_PIE_RX_SLOT_CURSOR_COMPLETED];
+        data[base + 8] = sample->owner_set[HSAN_PIE_RX_SLOT_PUBLISHED_AVAILABLE];
+        data[base + 9] = sample->owner_set[HSAN_PIE_RX_SLOT_DEFERRED];
+        data[base + 10] = sample->owner_set[HSAN_PIE_RX_SLOT_GAP];
+        data[base + 11] = sample->owner_set[HSAN_PIE_RX_SLOT_UNCLASSIFIED];
+        data[base + 12] = sample->zero_address;
+        data[base + 13] = sample->missing_buffer;
+        data[base + 14] = sample->end_ns - sample->begin_ns;
+    }
     data[0] = p->tx_prod;
     data[1] = p->tx_cons;
     data[4] = READ_ONCE(p->active);
@@ -5296,7 +6419,7 @@ static void hsan_get_ethtool_stats(struct net_device *ndev,
     data[237] = p->tx_gso_unsupported_drops;
     data[238] = p->tx_nonlinear_flattened;
     /* Existing RX cursor/pointer stats retain RX0 meaning. New per-queue
-     * fields below identify all four NAPI/ring states explicitly. */
+     * fields below identify the four ordinary NAPI/ring states explicitly. */
     data[2] = p->rxq[0].rx_cons;
     data[3] = p->rxq[0].rx_prod;
     data[89] = (u16)(p->rxq[0].rx_prod - p->rxq[0].rx_cons);
@@ -5550,7 +6673,7 @@ static void hsan_get_ethtool_stats(struct net_device *ndev,
             for (i = 0; i < 4; i++)
                 data[161 + i] = raw.raw[i];
             for (i = 4; i < HSAN_GEMAC_OEM_COUNTER_PAIRS; i++)
-                data[ARRAY_SIZE(hsan_ethtool_stat_names) - 5 + i - 4] =
+                data[HSAN_LEGACY_STATS_COUNT - 5 + i - 4] =
                     raw.raw[i];
         }
         if (!hsan_gemac_lan1_snapshot(&mac)) {
@@ -5615,24 +6738,56 @@ static void hsan_get_ethtool_stats(struct net_device *ndev,
                 data[base + 145 + i] = counters.drop[i];
         }
     }
-    if (READ_ONCE(p->active) &&
-        !test_bit(HSAN_FAULT_DATAPATH, &p->fault_flags)) {
-        struct hsan_dp_queue_counters counters;
+    if ((READ_ONCE(p->active) || READ_ONCE(p->soft_paused)) &&
+        !test_bit(HSAN_FAULT_DATAPATH, &p->fault_flags) &&
+        !hsan_lsw_dp_fam_cpu_fenced()) {
         const unsigned int base = HSAN_RX_WPTR_STATS_BASE +
                                   4 * HSAN_NET_RX_CHANNELS + 300;
+        const unsigned int summary = HSAN_EQM_DIAG_SUMMARY_BASE;
         unsigned int i, word;
 
-        /* No PIE spinlock is held across the sleeping EQM transaction.
-         * The CSR command path independently enforces the STOP fence.
+        data[summary] = ktime_get_ns();
+        data[summary + 4] = READ_ONCE(p->active) ? 1 : 2;
+        /* One row at a time avoids a large kernel-stack snapshot. EQM
+         * reads issue commands; the existing transaction locks, poison
+         * checks and CPU fence apply to each command. Retained soft pause
+         * keeps DMA mappings and must not be mistaken for hardware stop.
          */
-        hsan_lsw_dp_queue_counters(&counters);
-        for (i = 0; i < HSAN_DP_DIAG_QUEUE_COUNT; i++) {
-            if (!counters.valid[i])
-                continue;
-            for (word = 0; word < 5; word++)
-                data[base + i * 6 + word] = counters.words[i][word];
+        for (i = 0; i < HSAN_DP_QUEUE_DIAG_COUNT; i++) {
+            struct hsan_dp_queue_diag row;
+            struct hsan_eqm_diag_decoded decoded;
+            const unsigned int extra = HSAN_EQM_DIAG_EXTRA_BASE +
+                                       i * HSAN_EQM_DIAG_EXTRA_STRIDE;
+            int ret;
+
+            ret = hsan_lsw_dp_queue_diag(i, &row);
+            if (ret || row.valid_tables != HSAN_DP_QUEUE_DIAG_BOTH_VALID) {
+                data[summary + 3] = ret < 0 ? -(s64)ret : EIO;
+                break;
+            }
+            if (!hsan_eqm_diag_decode(row.table80, ARRAY_SIZE(row.table80),
+                                      row.table81, ARRAY_SIZE(row.table81),
+                                      &decoded)) {
+                data[summary + 3] = EINVAL;
+                break;
+            }
+            for (word = 0; word < 4; word++)
+                data[base + i * 6 + word] = row.table81[word];
+            data[base + i * 6 + 4] = row.table80[2];
             data[base + i * 6 + 5] = 1;
+            data[extra] = row.table81[4];
+            data[extra + 1] = row.table80[0];
+            data[extra + 2] = row.table80[1];
+            data[extra + 3] = decoded.cell;
+            data[extra + 4] = decoded.priv;
+            data[extra + 5] = decoded.in_out_delta;
+            data[extra + 6] = decoded.out;
+            data[extra + 7] = decoded.in_derived;
+            data[extra + 8] = decoded.drop_sum;
+            data[extra + 9] = row.end_ns - row.begin_ns;
+            data[summary + 2]++;
         }
+        data[summary + 1] = ktime_get_ns();
     }
     if (READ_ONCE(p->active) &&
         !test_bit(HSAN_FAULT_DATAPATH, &p->fault_flags) &&
@@ -5640,7 +6795,7 @@ static void hsan_get_ethtool_stats(struct net_device *ndev,
         of_property_read_bool(p->dev->of_node,
                              "hsan,experimental-cpu-lan1-diagnostic")) {
         unsigned int row, field;
-        const unsigned int base = ARRAY_SIZE(hsan_ethtool_stat_names) - 88 - 5;
+        const unsigned int base = HSAN_LEGACY_STATS_COUNT - 88 - 5;
 
         /* OEM ips_diag_get_cnt @0x63b0: eleven rows, seven adjacent
          * registers. Raw observations only, not atomic snapshots or
@@ -6017,7 +7172,7 @@ static int hsan_probe(struct platform_device *pdev)
     }
     hsan_report_startup_blockers(p);
     dev_info(dev,
-        "Stage79 PIE: ordinary RX0..3 each 1024x2048; %u configured GRO rings remain unsupported; IRQ groups 0/7,1/6,2/5,3/4; %s\n",
+        "PIE: ordinary RX0..3 each 1024x2048; %u GRO rings configured with explicit profile admission; IRQ groups 0/7,1/6,2/5,3/4; %s\n",
         p->gro_channels, irq_count ? "four physical IRQs" : "explicit watchdog-only mode");
     return 0;
 err_napi:
@@ -6032,12 +7187,37 @@ static void hsan_remove(struct platform_device *pdev)
 {
     struct net_device *ndev = platform_get_drvdata(pdev);
     struct hsan_v300 *p = netdev_priv(ndev);
+    unsigned long flags;
     unsigned int ch;
 
+    /* Forced device removal is terminal even when ndo_stop normally uses
+     * retained pause. The module pin does not keep this netdev or devres
+     * alive. Close CPU producers before unregistering; this does not stop
+     * hardware and never permits DMA memory to be released.
+     */
+    spin_lock_irqsave(&p->tx_lock, flags);
+    WRITE_ONCE(p->active, false);
+    WRITE_ONCE(p->soft_paused, false);
+    p->gro_auto_stopping = true;
+    if (p->dma_ever_started) {
+        hsan_lsw_dp_fam_stop_fence();
+        p->stop_fam_cpu_fenced = true;
+    }
+    spin_unlock_irqrestore(&p->tx_lock, flags);
     if (p->boot_reset_verified)
         hsan_lsw_pie_boot_reset_invalidate();
     unregister_netdev(ndev);
     cancel_delayed_work_sync(&p->watchdog);
+    hsan_free_owned_irqs(p);
+    hsan_disable_owned_napi(p);
+    /* An already-down retained netdev does not call ndo_stop again from
+     * unregister_netdev. Detach its still-running PHY before free_netdev;
+     * Linux phy_disconnect stops the state machine and clears attached_dev.
+     */
+    if (p->phy_connected) {
+        phy_disconnect(ndev->phydev);
+        p->phy_connected = false;
+    }
     /* napi_disable releases scheduling ownership, not necessarily the
      * entire callback tail after complete_done. Keep p/q/MMIO alive
      * until every netif_napi_del has synchronized network readers and
@@ -6054,6 +7234,12 @@ static void hsan_remove(struct platform_device *pdev)
         hsan_free_unstarted(p);
     else
         dev_warn(p->dev, "retaining all hardware-visible DMA memory until qualified reset\n");
+    spin_lock_irqsave(&p->tx_lock, flags);
+    p->dma_lifecycle.operation_end_ns = ktime_get_ns();
+    hsan_dma_phase_locked(p, p->dma_ever_started ? HSAN_DMA_REMOVED_RETAINED :
+                                                    HSAN_DMA_UNPUBLISHED, 0);
+    spin_unlock_irqrestore(&p->tx_lock, flags);
+    platform_set_drvdata(pdev, NULL);
     free_netdev(ndev);
 }
 
@@ -6148,9 +7334,104 @@ static ssize_t gro_auto_state_show(struct device *dev,
 }
 static DEVICE_ATTR_RO(gro_auto_state);
 
+/* Driver-core removes dev_groups and drains sysfs callbacks before
+ * invoking remove (drivers/base/dd.c::device_remove). This callback copies
+ * only CPU state under tx_lock: no MMIO command and no DMA address exposure.
+ */
+static ssize_t dma_lifecycle_show(struct device *dev,
+                                  struct device_attribute *attr, char *buf)
+{
+    struct net_device *ndev = dev_get_drvdata(dev);
+    struct hsan_dma_lifecycle record;
+    struct hsan_v300 *p;
+    unsigned long flags;
+    bool published, active, paused, fenced, irq_synced, rx_off;
+    u32 irq_masks;
+    bool control_paused;
+    u64 control_generation;
+    int control_error;
+
+    if (!ndev)
+        return -ENODATA;
+    p = netdev_priv(ndev);
+    spin_lock_irqsave(&p->tx_lock, flags);
+    record = p->dma_lifecycle;
+    control_paused = p->control_paused;
+    control_generation = p->control_pause_generation;
+    control_error = p->control_last_errno;
+    published = p->dma_ever_started;
+    active = p->active;
+    paused = p->soft_paused;
+    fenced = hsan_lsw_dp_fam_cpu_fenced();
+    irq_synced = p->stop_irq_synchronized;
+    irq_masks = p->stop_rx_irq_masked_channels;
+    rx_off = p->stop_rx_global_disabled_readback;
+    spin_unlock_irqrestore(&p->tx_lock, flags);
+    return sysfs_emit(buf,
+        "version=1 state=%s sequence=%llu last_errno=%d changed_ns=%llu\n"
+        "operation_begin_ns=%llu operation_end_ns=%llu\n"
+        "control_paused=%u control_generation=%llu control_last_errno=%d\n"
+        "pause_attempts=%llu pause_completed=%llu resume_attempts=%llu resume_completed=%llu\n"
+        "dma_published=%u active=%u soft_paused=%u cpu_fenced=%u\n"
+        "last_stop_irq_synced=%u last_stop_irq_masks=%#x last_stop_rx_global_off=%u\n"
+        "hardware_stop_proven=0 hardware_drain_proven=0 pie_ring_release_allowed=%u\n",
+        hsan_dma_phase_name(record.phase),
+        (unsigned long long)record.sequence, record.last_errno,
+        (unsigned long long)record.changed_ns,
+        (unsigned long long)record.operation_begin_ns,
+        (unsigned long long)record.operation_end_ns,
+        control_paused, (unsigned long long)control_generation, control_error,
+        (unsigned long long)record.pause_attempts,
+        (unsigned long long)record.pause_completed,
+        (unsigned long long)record.resume_attempts,
+        (unsigned long long)record.resume_completed,
+        published, active, paused, fenced, irq_synced, irq_masks, rx_off,
+        !published);
+}
+static DEVICE_ATTR_RO(dma_lifecycle);
+
+/* Cached, read-only observations only: reading sysfs does not issue MMIO
+ * and cannot turn an unowned channel into an owned or stopped one.
+ */
+static ssize_t foreign_tx_state_show(struct device *dev,
+                                    struct device_attribute *attr, char *buf)
+{
+    struct net_device *ndev = dev_get_drvdata(dev);
+    struct hsan_v300 *p;
+    unsigned long flags;
+    u32 rows[HSAN_OEM_TX_CHANNELS - 1][4], bitmap, stop_bitmap;
+    u64 checks, faults;
+    unsigned int ch;
+    ssize_t length;
+
+    if (!ndev)
+        return -ENODATA;
+    p = netdev_priv(ndev);
+    spin_lock_irqsave(&p->tx_lock, flags);
+    memcpy(rows, p->foreign_tx_words, sizeof(rows));
+    bitmap = p->foreign_tx_last_bitmap;
+    stop_bitmap = p->stop_foreign_tx_bitmap;
+    checks = p->foreign_tx_checks;
+    faults = p->foreign_tx_faults;
+    spin_unlock_irqrestore(&p->tx_lock, flags);
+    length = sysfs_emit(buf,
+        "owned_tx=0 observed_tx=1..7 sample_valid=%u checks=%llu faults=%llu last_bitmap=%#x stop_bitmap=%#x\n",
+        checks != 0, (unsigned long long)checks, (unsigned long long)faults,
+        bitmap, stop_bitmap);
+    for (ch = 1; ch < HSAN_OEM_TX_CHANNELS; ch++)
+        length += sysfs_emit_at(buf, length,
+            "tx%u base=%#x ring=%#x wptr=%#x rptr=%#x\n", ch,
+            rows[ch - 1][0], rows[ch - 1][1],
+            rows[ch - 1][2], rows[ch - 1][3]);
+    return length;
+}
+static DEVICE_ATTR_RO(foreign_tx_state);
+
 static struct attribute *hsan_rx_attrs[] = {
     &dev_attr_gro_auto_state.attr,
     &dev_attr_rx_queue_packets.attr,
+    &dev_attr_dma_lifecycle.attr,
+    &dev_attr_foreign_tx_state.attr,
     NULL,
 };
 ATTRIBUTE_GROUPS(hsan_rx);
@@ -6166,4 +7447,4 @@ static struct platform_driver hsan_driver = {
 };
 module_platform_driver(hsan_driver);
 MODULE_LICENSE("GPL");
-MODULE_DESCRIPTION("TEWA1108V Stage79 PIE v300 four ordinary RX queues and STOP-serialized DMA");
+MODULE_DESCRIPTION("TEWA1108V PIE v300 LAN1 ordinary/GRO RX and retained DMA lifecycle");

@@ -27,6 +27,7 @@
 #include <linux/mii.h>
 #include <linux/platform_device.h>
 #include "hsan-gemac-lan1.h"
+#include "hsan-lsw-csr.h"
 
 #define HSAN_MAC_BASE         0x14400000U
 #define HSAN_MAC_LENGTH       0x10000U
@@ -457,8 +458,9 @@ EXPORT_SYMBOL_GPL(hsan_gemac_lan1_get_phy);
  * sequence under the MAC owner lock without resetting PIE or changing
  * DMA mappings. Unexpected register drift still requires a board reset.
  */
-int hsan_gemac_lan1_program_link(void)
+static int hsan_gemac_lan1_program_link_control_locked(void)
 {
+    struct hsan_lsw_control_mmio_guard mmio;
     struct hsan_gemac_link_snapshot link;
     struct hsan_mac_lan1 *mac;
     u32 reg40, reg100, mode, check, expected40, silent_before;
@@ -536,6 +538,9 @@ int hsan_gemac_lan1_program_link(void)
     /* Latch BEFORE first irreversible write, including any failed
      * MMIO readback; do not auto-replay across a failed probe.
      */
+    ret = hsan_lsw_control_mmio_begin(&mmio);
+    if (ret)
+        goto out;
     mac->link_program_attempted = true;
     mac->link_hw_uncertain = true;
     hsan_mac_pin_hw_lifetime();
@@ -568,11 +573,13 @@ int hsan_gemac_lan1_program_link(void)
         (expected40 & (BIT(24) | GENMASK(15, 8))) ||
         (check & (HSAN_MAC_MTU_MASK | HSAN_MAC_PAUSE_MASK)) !=
         (reg100 & (HSAN_MAC_MTU_MASK | HSAN_MAC_PAUSE_MASK))) {
+        hsan_lsw_control_mmio_end(&mmio);
         dev_err(mac->dev, "OEM GEMAC MAC configuration readback mismatch (%08x/%08x), retry forbidden\n",
                 check, reg100);
         ret = -EUCLEAN;
         goto out;
     }
+    hsan_lsw_control_mmio_end(&mmio);
     dev_info(mac->dev, "OEM GEMAC link-up silent register: before=%#x after=%#x\n",
              silent_before, readl(mac->regs + 0x48));
     mac->link_speed_mbps = link.speed_mbps;
@@ -610,6 +617,19 @@ out:
 
 
     }
+    return ret;
+}
+
+int hsan_gemac_lan1_program_link(void)
+{
+    struct hsan_lsw_control_guard guard;
+    int ret;
+
+    ret = hsan_lsw_control_begin(&guard);
+    if (ret)
+        return ret;
+    ret = hsan_gemac_lan1_program_link_control_locked();
+    hsan_lsw_control_end(&guard);
     return ret;
 }
 EXPORT_SYMBOL_GPL(hsan_gemac_lan1_program_link);

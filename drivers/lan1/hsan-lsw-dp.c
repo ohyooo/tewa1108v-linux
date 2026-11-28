@@ -20,6 +20,8 @@
 #include <linux/reset.h>
 #include <linux/mutex.h>
 #include "hsan-lsw-dp.h"
+#include <linux/ktime.h>
+#include "hsan-dp-queue-diag.h"
 #include <linux/of.h>
 #include <linux/platform_device.h>
 #include <linux/slab.h>
@@ -433,12 +435,14 @@ static struct hsan_fam_init_record hsan_dp_fam_arm_history;
  * checks each command, and poisons the engine after an uncertain failure.
  * Partial rows are explicitly invalid; no retries and no DMA release.
  */
-int hsan_lsw_dp_queue_counters(struct hsan_dp_queue_counters *out)
+static int hsan_lsw_dp_queue_counters_control_locked(struct hsan_dp_queue_counters *out)
 {
     struct hsan_dp_state *state;
     unsigned int i;
     int ret = -ENODEV;
 
+    if (!out)
+        return -EINVAL;
     memset(out, 0, sizeof(*out));
     mutex_lock(&hsan_dp_owner_lock);
     state = hsan_dp_owner;
@@ -470,7 +474,85 @@ unlock:
     mutex_unlock(&hsan_dp_owner_lock);
     return ret;
 }
+
+int hsan_lsw_dp_queue_counters(struct hsan_dp_queue_counters *out)
+{
+    struct hsan_lsw_control_guard guard;
+    int ret;
+
+    if (out)
+        memset(out, 0, sizeof(*out));
+    ret = hsan_lsw_control_begin(&guard);
+    if (ret)
+        return ret;
+    ret = hsan_lsw_dp_queue_counters_control_locked(out);
+    hsan_lsw_control_end(&guard);
+    return ret;
+}
 EXPORT_SYMBOL_GPL(hsan_lsw_dp_queue_counters);
+
+/* The original five-word ABI remains unchanged. This separate interface
+ * preserves table81[4] and table80[0..1], which the legacy sample omitted.
+ * Two completed table commands still do not constitute a DMA drain ACK.
+ */
+static int hsan_lsw_dp_queue_diag_control_locked(unsigned int index, struct hsan_dp_queue_diag *out)
+{
+	struct hsan_dp_queue_diag sample = { 0 };
+	struct hsan_dp_state *state;
+	int ret = -ENODEV;
+
+	static_assert(HSAN_DP_DIAG_QUEUE_COUNT == HSAN_DP_QUEUE_DIAG_COUNT);
+	if (!out)
+		return -EINVAL;
+	if (index >= HSAN_DP_QUEUE_DIAG_COUNT)
+		return -ERANGE;
+	sample.qid = index < 8U ? 81U + index :
+		     (index < 56U ? 129U + index - 8U : 33U + index - 56U);
+	mutex_lock(&hsan_dp_owner_lock);
+	state = hsan_dp_owner;
+	if (!state || !state->clocks_on || state->quarantined)
+		goto unlock;
+	ret = -EACCES;
+	if (!state->eqm_counter_diagnostic || !state->queue_routing_verified ||
+	    !state->pie_map_hw_committed)
+		goto unlock;
+	if (hsan_lsw_dp_fam_cpu_fenced()) {
+		ret = -ESHUTDOWN;
+		goto unlock;
+	}
+	sample.begin_ns = ktime_get_ns();
+	ret = hsan_lsw_eqm_read_table(81, sample.qid, sample.table81,
+				    HSAN_EQM_DIAG_TABLE81_WORDS, NULL);
+	if (ret)
+		goto sampled;
+	sample.valid_tables |= HSAN_DP_QUEUE_DIAG_T81_VALID;
+	ret = hsan_lsw_eqm_read_table(80, sample.qid, sample.table80,
+				    HSAN_EQM_DIAG_TABLE80_WORDS, NULL);
+	if (!ret)
+		sample.valid_tables |= HSAN_DP_QUEUE_DIAG_T80_VALID;
+sampled:
+	sample.end_ns = ktime_get_ns();
+unlock:
+	mutex_unlock(&hsan_dp_owner_lock);
+	*out = sample;
+	return ret;
+}
+
+int hsan_lsw_dp_queue_diag(unsigned int index, struct hsan_dp_queue_diag *out)
+{
+    struct hsan_lsw_control_guard guard;
+    int ret;
+
+    if (out)
+        memset(out, 0, sizeof(*out));
+    ret = hsan_lsw_control_begin(&guard);
+    if (ret)
+        return ret;
+    ret = hsan_lsw_dp_queue_diag_control_locked(index, out);
+    hsan_lsw_control_end(&guard);
+    return ret;
+}
+EXPORT_SYMBOL_GPL(hsan_lsw_dp_queue_diag);
 
 int hsan_lsw_dp_init_snapshot(struct hsan_dp_init_snapshot *out)
 {
@@ -2542,7 +2624,7 @@ clocks:
 	return ret;
 }
 
-static int hsan_dp_probe(struct platform_device *pdev)
+static int hsan_dp_probe_control_locked(struct platform_device *pdev)
 {
 	struct hsan_dp_init_snapshot snapshot;
 	int ret;
@@ -2560,6 +2642,19 @@ static int hsan_dp_probe(struct platform_device *pdev)
 			 snapshot.quarantined);
 	mutex_unlock(&hsan_dp_probe_lock);
 	return ret;
+}
+
+static int hsan_dp_probe(struct platform_device *pdev)
+{
+    struct hsan_lsw_control_guard guard;
+    int ret;
+
+    ret = hsan_lsw_control_begin(&guard);
+    if (ret)
+        return ret;
+    ret = hsan_dp_probe_control_locked(pdev);
+    hsan_lsw_control_end(&guard);
+    return ret;
 }
 
 static void hsan_dp_remove_locked(struct platform_device *pdev)

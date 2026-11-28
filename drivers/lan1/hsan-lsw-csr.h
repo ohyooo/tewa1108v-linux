@@ -6,6 +6,61 @@
 #include <linux/io.h>
 #include <linux/types.h>
 
+/* Sleepable CPU control transactions, separate from IRQ-safe PIE guards.
+ * Take this guard BEFORE PFE/DP owner/probe/flow or CSR transaction locks.
+ * A complete high-level batch may nest CSR guards in the same task. Never
+ * transfer a held guard/token to another task or wait for work that needs
+ * this gate. Pure MMIO reads and software snapshots need no admission.
+ * A paused entry returns -EBUSY before MMIO/latches; the permanent FAM CPU
+ * fence returns -ESHUTDOWN and has priority over pause and resume.
+ */
+struct hsan_lsw_control_guard {
+    bool held;
+};
+int hsan_lsw_control_begin(struct hsan_lsw_control_guard *guard);
+void hsan_lsw_control_end(struct hsan_lsw_control_guard *guard);
+
+/* Caller first stops PIE producers and cancels work/IRQ/NAPI without this
+ * gate held. Pause waits for entire admitted control batches to finish,
+ * then closes admission. It retains all mappings, clocks and DMA ownership.
+ * The opaque owner must remain alive until activation or terminal fence.
+ * Repeated pause by the same owner returns the same nonzero generation.
+ * No operation here is a device STOP/idle ACK or permission to free DMA.
+ */
+int hsan_lsw_control_pause(const void *owner, u64 *generation);
+
+/* begin returns an exclusive task-bound token with admission still closed
+ * to all other tasks. The holder may call ordinary control/snapshot APIs
+ * for preflight and resume; their nested guards do not retake the mutex.
+ * Complete ALL fallible resume work before end(true). end(false) preserves
+ * pause and its generation, permitting a later retry by the same owner.
+ * End on the same task and outside every spinlock, with nested guards ended.
+ */
+struct hsan_lsw_control_resume {
+    const void *owner;
+    u64 generation;
+    bool held;
+};
+int hsan_lsw_control_resume_begin(const void *owner, u64 generation,
+                                  struct hsan_lsw_control_resume *resume);
+int hsan_lsw_control_resume_end(struct hsan_lsw_control_resume *resume,
+                                bool activate);
+
+/* A short direct-MMIO write burst inside an already admitted control
+ * batch. This guard shares the permanent FAM fence spinlock but does not
+ * count as a DMA publication/reclaim. Take it after the device owner mutex,
+ * before any attempted/uncertain latch or first write. Pair begin success
+ * with end on EVERY exit; no sleeping, PHY I/O, nested CSR call or existing
+ * CSR spin guard is allowed inside. No hardware STOP/drain is implied.
+ */
+struct hsan_lsw_control_mmio_guard {
+    unsigned long irq_flags;
+    bool held;
+};
+int hsan_lsw_control_mmio_begin(struct hsan_lsw_control_mmio_guard *guard);
+void hsan_lsw_control_mmio_end(struct hsan_lsw_control_mmio_guard *guard);
+
+
 /* Exact OEM hi_lsw_pub bank model: [31:24] = bank number; [23:0]
  * = register offset.  The OEM stored {address, virtual, length} per bank,
  * using a fixed 12-byte A32 structure; this kernel implementation uses

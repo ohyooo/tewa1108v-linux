@@ -9,6 +9,8 @@
  * explicitly; bank mapping never implies a complete routing pipeline.
  */
 #include <linux/errno.h>
+#include <linux/interrupt.h>
+#include <linux/preempt.h>
 #include <linux/bitmap.h>
 #include <linux/xarray.h>
 #include <linux/delay.h>
@@ -99,6 +101,182 @@ static atomic64_t hsan_lsw_fam_publish_admissions = ATOMIC64_INIT(0);
 static atomic64_t hsan_lsw_fam_reclaim_rejections = ATOMIC64_INIT(0);
 static atomic64_t hsan_lsw_fam_reclaim_admissions = ATOMIC64_INIT(0);
 static atomic64_t hsan_lsw_fam_stop_invocations = ATOMIC64_INIT(0);
+/* Reversible CPU control admission is outside every PFE/DP owner/probe/
+ * flow mutex and every CSR transaction lock. A single task may enter a
+ * high-level batch and then its CSR operations; only the outer admission
+ * locks the mutex. This avoids recursive read-lock acquisition behind a
+ * waiting pause writer. No IRQ-safe publication function uses this gate.
+ *
+ * Only the mutex owner accesses depth/paused/owner/generation. task is
+ * READ_ONCE-tested solely for same-task nesting and cleared before unlock.
+ * Temporary pause is NEVER checked between a command's individual words.
+ * The permanent CPU fence remains independently linearized by bank spin.
+ */
+static DEFINE_MUTEX(hsan_lsw_control_lock);
+static struct task_struct *hsan_lsw_control_task;
+static unsigned int hsan_lsw_control_depth;
+static bool hsan_lsw_control_paused;
+static const void *hsan_lsw_control_owner;
+static u64 hsan_lsw_control_generation;
+
+static bool hsan_lsw_control_sleepable(void)
+{
+    return !in_interrupt() && !irqs_disabled() && !in_atomic();
+}
+
+int hsan_lsw_control_begin(struct hsan_lsw_control_guard *guard)
+{
+    int ret = 0;
+
+    if (!guard)
+        return -EINVAL;
+    guard->held = false;
+    if (!hsan_lsw_control_sleepable())
+        return -EWOULDBLOCK;
+    if (atomic_read(&hsan_lsw_fam_cpu_stopped))
+        return -ESHUTDOWN;
+    if (READ_ONCE(hsan_lsw_control_task) == current) {
+        if (hsan_lsw_control_depth == UINT_MAX)
+            return -EOVERFLOW;
+        ++hsan_lsw_control_depth;
+        guard->held = true;
+        return 0;
+    }
+    mutex_lock(&hsan_lsw_control_lock);
+    if (atomic_read(&hsan_lsw_fam_cpu_stopped))
+        ret = -ESHUTDOWN;
+    else if (hsan_lsw_control_paused)
+        ret = -EBUSY;
+    if (ret) {
+        mutex_unlock(&hsan_lsw_control_lock);
+        return ret;
+    }
+    hsan_lsw_control_depth = 1;
+    WRITE_ONCE(hsan_lsw_control_task, current);
+    guard->held = true;
+    return 0;
+}
+EXPORT_SYMBOL_GPL(hsan_lsw_control_begin);
+
+void hsan_lsw_control_end(struct hsan_lsw_control_guard *guard)
+{
+    if (WARN_ON_ONCE(!guard || !guard->held ||
+                     READ_ONCE(hsan_lsw_control_task) != current ||
+                     !hsan_lsw_control_depth))
+        return;
+    guard->held = false;
+    if (--hsan_lsw_control_depth)
+        return;
+    WRITE_ONCE(hsan_lsw_control_task, NULL);
+    mutex_unlock(&hsan_lsw_control_lock);
+}
+EXPORT_SYMBOL_GPL(hsan_lsw_control_end);
+
+int hsan_lsw_control_pause(const void *owner, u64 *generation)
+{
+    unsigned long flags;
+    int ret = 0;
+
+    if (!owner || !generation)
+        return -EINVAL;
+    *generation = 0;
+    if (!hsan_lsw_control_sleepable())
+        return -EWOULDBLOCK;
+    if (READ_ONCE(hsan_lsw_control_task) == current)
+        return -EDEADLK;
+    mutex_lock(&hsan_lsw_control_lock);
+    /* Serialize the phase decision with the IRQ-safe permanent fence. */
+    spin_lock_irqsave(&hsan_lsw_lock, flags);
+    if (atomic_read(&hsan_lsw_fam_cpu_stopped)) {
+        ret = -ESHUTDOWN;
+    } else if (hsan_lsw_control_paused) {
+        if (hsan_lsw_control_owner != owner)
+            ret = -EBUSY;
+    } else if (hsan_lsw_control_generation == U64_MAX) {
+        ret = -EOVERFLOW;
+    } else {
+        ++hsan_lsw_control_generation;
+        hsan_lsw_control_owner = owner;
+        hsan_lsw_control_paused = true;
+    }
+    if (!ret)
+        *generation = hsan_lsw_control_generation;
+    spin_unlock_irqrestore(&hsan_lsw_lock, flags);
+    mutex_unlock(&hsan_lsw_control_lock);
+    return ret;
+}
+EXPORT_SYMBOL_GPL(hsan_lsw_control_pause);
+
+int hsan_lsw_control_resume_begin(const void *owner, u64 generation,
+                                  struct hsan_lsw_control_resume *resume)
+{
+    int ret = 0;
+
+    if (!resume)
+        return -EINVAL;
+    memset(resume, 0, sizeof(*resume));
+    if (!owner || !generation)
+        return -EINVAL;
+    if (!hsan_lsw_control_sleepable())
+        return -EWOULDBLOCK;
+    if (READ_ONCE(hsan_lsw_control_task) == current)
+        return -EDEADLK;
+    mutex_lock(&hsan_lsw_control_lock);
+    if (atomic_read(&hsan_lsw_fam_cpu_stopped))
+        ret = -ESHUTDOWN;
+    else if (!hsan_lsw_control_paused ||
+             hsan_lsw_control_owner != owner ||
+             hsan_lsw_control_generation != generation)
+        ret = -ESTALE;
+    if (ret) {
+        mutex_unlock(&hsan_lsw_control_lock);
+        return ret;
+    }
+    hsan_lsw_control_depth = 1;
+    WRITE_ONCE(hsan_lsw_control_task, current);
+    resume->owner = owner;
+    resume->generation = generation;
+    resume->held = true;
+    /* Mutex remains held and paused remains true for every other task. */
+    return 0;
+}
+EXPORT_SYMBOL_GPL(hsan_lsw_control_resume_begin);
+
+int hsan_lsw_control_resume_end(struct hsan_lsw_control_resume *resume,
+                                bool activate)
+{
+    unsigned long flags;
+    int ret = 0;
+
+    if (!resume || !resume->held ||
+        READ_ONCE(hsan_lsw_control_task) != current)
+        return -EINVAL;
+    if (!hsan_lsw_control_sleepable())
+        return -EWOULDBLOCK;
+    /* A live nested guard must be ended before the exclusive token. */
+    if (WARN_ON_ONCE(hsan_lsw_control_depth != 1))
+        return -EDEADLK;
+    spin_lock_irqsave(&hsan_lsw_lock, flags);
+    if (atomic_read(&hsan_lsw_fam_cpu_stopped))
+        ret = -ESHUTDOWN;
+    else if (!hsan_lsw_control_paused ||
+             hsan_lsw_control_owner != resume->owner ||
+             hsan_lsw_control_generation != resume->generation)
+        ret = -ESTALE;
+    else if (activate) {
+        hsan_lsw_control_paused = false;
+        hsan_lsw_control_owner = NULL;
+    }
+    spin_unlock_irqrestore(&hsan_lsw_lock, flags);
+    resume->held = false;
+    hsan_lsw_control_depth = 0;
+    WRITE_ONCE(hsan_lsw_control_task, NULL);
+    mutex_unlock(&hsan_lsw_control_lock);
+    return ret;
+}
+EXPORT_SYMBOL_GPL(hsan_lsw_control_resume_end);
+
+
 /* Caller holds hsan_lsw_lock. Fencing and each MMIO write share this
  * lock, so no CSR write may be newly admitted AFTER the fence completes.
  * This only serializes CPU writes; posted bus traffic/DMA can remain live.
@@ -110,6 +288,40 @@ static bool hsan_lsw_cpu_write_allowed_locked(void)
     atomic64_inc(&hsan_lsw_fam_write_rejections);
     return false;
 }
+/* Short direct-MMIO bursts outside the bank registry (GEMAC) share the
+ * permanent CPU fence lock. The caller already owns a sleepable control
+ * batch and has completed all fallible/sleepable preparation. No temporary
+ * pause check belongs here: the entire outer batch was already admitted.
+ */
+int hsan_lsw_control_mmio_begin(struct hsan_lsw_control_mmio_guard *guard)
+{
+    if (!guard)
+        return -EINVAL;
+    guard->held = false;
+    if (in_interrupt() || READ_ONCE(hsan_lsw_control_task) != current ||
+        !hsan_lsw_control_depth)
+        return -EPERM;
+    spin_lock_irqsave(&hsan_lsw_lock, guard->irq_flags);
+    if (!hsan_lsw_cpu_write_allowed_locked()) {
+        spin_unlock_irqrestore(&hsan_lsw_lock, guard->irq_flags);
+        return -ESHUTDOWN;
+    }
+    guard->held = true;
+    return 0;
+}
+EXPORT_SYMBOL_GPL(hsan_lsw_control_mmio_begin);
+
+void hsan_lsw_control_mmio_end(struct hsan_lsw_control_mmio_guard *guard)
+{
+    if (WARN_ON_ONCE(!guard || !guard->held ||
+                     READ_ONCE(hsan_lsw_control_task) != current))
+        return;
+    guard->held = false;
+    spin_unlock_irqrestore(&hsan_lsw_lock, guard->irq_flags);
+}
+EXPORT_SYMBOL_GPL(hsan_lsw_control_mmio_end);
+
+
 static atomic_t hsan_lsw_fam_module_pinned = ATOMIC_INIT(0);
 static bool hsan_lsw_fam_bank(u8 bank)
 {
@@ -441,7 +653,7 @@ static int hsan_lsw_write_raw(u32 logical_address, u32 value)
 	spin_unlock_irqrestore(&hsan_lsw_lock, flags);
 	return ret;
 }
-int hsan_lsw_write(u32 logical_address, u32 value)
+static int hsan_lsw_write_control_locked(u32 logical_address, u32 value)
 {
     int ret;
 
@@ -479,6 +691,19 @@ int hsan_lsw_write(u32 logical_address, u32 value)
         mutex_unlock(&hsan_lsw_fam_lock);
     return ret;
 }
+
+int hsan_lsw_write(u32 logical_address, u32 value)
+{
+    struct hsan_lsw_control_guard guard;
+    int ret;
+
+    ret = hsan_lsw_control_begin(&guard);
+    if (ret)
+        return ret;
+    ret = hsan_lsw_write_control_locked(logical_address, value);
+    hsan_lsw_control_end(&guard);
+    return ret;
+}
 EXPORT_SYMBOL_GPL(hsan_lsw_write);
 
 /* Keep ownership and the value verification within ONE IRQ-safe bank lock.
@@ -486,7 +711,7 @@ EXPORT_SYMBOL_GPL(hsan_lsw_write);
  * writel() and readl(). The EQM FIFO/command ports are deliberately not
  * exposed through this helper: they require their own transaction lock.
  */
-int hsan_lsw_write_verify(u32 logical_address, u32 value)
+static int hsan_lsw_write_verify_control_locked(u32 logical_address, u32 value)
 {
     struct hsan_bank *bank;
     unsigned long flags;
@@ -537,6 +762,19 @@ unlock_banks:
         mutex_unlock(&hsan_lsw_mcc_lock);
     if ((logical_address >> 24) == 0x03)
         mutex_unlock(&hsan_lsw_napt_lock);
+    return ret;
+}
+
+int hsan_lsw_write_verify(u32 logical_address, u32 value)
+{
+    struct hsan_lsw_control_guard guard;
+    int ret;
+
+    ret = hsan_lsw_control_begin(&guard);
+    if (ret)
+        return ret;
+    ret = hsan_lsw_write_verify_control_locked(logical_address, value);
+    hsan_lsw_control_end(&guard);
     return ret;
 }
 EXPORT_SYMBOL_GPL(hsan_lsw_write_verify);
@@ -614,19 +852,45 @@ unlock_banks:
     return ret;
 }
 
-int hsan_lsw_update_bits(u32 logical_address, u32 mask, u32 value)
+static int hsan_lsw_update_bits_control_locked(u32 logical_address, u32 mask, u32 value)
 {
     return hsan_lsw_update_bits_common(logical_address, mask, value, false);
 }
+
+int hsan_lsw_update_bits(u32 logical_address, u32 mask, u32 value)
+{
+    struct hsan_lsw_control_guard guard;
+    int ret;
+
+    ret = hsan_lsw_control_begin(&guard);
+    if (ret)
+        return ret;
+    ret = hsan_lsw_update_bits_control_locked(logical_address, mask, value);
+    hsan_lsw_control_end(&guard);
+    return ret;
+}
 EXPORT_SYMBOL_GPL(hsan_lsw_update_bits);
 
-int hsan_lsw_update_bits_verify(u32 logical_address, u32 mask, u32 value)
+static int hsan_lsw_update_bits_verify_control_locked(u32 logical_address, u32 mask, u32 value)
 {
     return hsan_lsw_update_bits_common(logical_address, mask, value, true);
 }
+
+int hsan_lsw_update_bits_verify(u32 logical_address, u32 mask, u32 value)
+{
+    struct hsan_lsw_control_guard guard;
+    int ret;
+
+    ret = hsan_lsw_control_begin(&guard);
+    if (ret)
+        return ret;
+    ret = hsan_lsw_update_bits_verify_control_locked(logical_address, mask, value);
+    hsan_lsw_control_end(&guard);
+    return ret;
+}
 EXPORT_SYMBOL_GPL(hsan_lsw_update_bits_verify);
 
-int hsan_lsw_write_tab128(u32 base, u32 row, const u32 words[4])
+static int hsan_lsw_write_tab128_control_locked(u32 base, u32 row, const u32 words[4])
 {
 	struct hsan_bank *bank;
 	u32 logical, offset;
@@ -703,6 +967,19 @@ unlock_banks:
 	if ((logical >> 24) == 0x03)
 		mutex_unlock(&hsan_lsw_napt_lock);
 	return ret;
+}
+
+int hsan_lsw_write_tab128(u32 base, u32 row, const u32 words[4])
+{
+    struct hsan_lsw_control_guard guard;
+    int ret;
+
+    ret = hsan_lsw_control_begin(&guard);
+    if (ret)
+        return ret;
+    ret = hsan_lsw_write_tab128_control_locked(base, row, words);
+    hsan_lsw_control_end(&guard);
+    return ret;
 }
 EXPORT_SYMBOL_GPL(hsan_lsw_write_tab128);
 
@@ -834,7 +1111,7 @@ int hsan_lsw_l3intf_pair_preflight(struct device *owner, u32 row,
 }
 EXPORT_SYMBOL_GPL(hsan_lsw_l3intf_pair_preflight);
 
-int hsan_lsw_l3intf_pair_commit(struct device *owner, u32 row,
+static int hsan_lsw_l3intf_pair_commit_control_locked(struct device *owner, u32 row,
                                 const u32 before_a[4], const u32 before_b[4],
                                 const u32 after_a[4], const u32 after_b[4],
                                 bool *submitted, bool *readback_ok)
@@ -887,6 +1164,27 @@ unlock:
     spin_unlock_irqrestore(&hsan_lsw_lock, flags);
     return ret;
 }
+
+int hsan_lsw_l3intf_pair_commit(struct device *owner, u32 row,
+                                const u32 before_a[4], const u32 before_b[4],
+                                const u32 after_a[4], const u32 after_b[4],
+                                bool *submitted, bool *readback_ok)
+{
+    struct hsan_lsw_control_guard guard;
+    int ret;
+
+    if (submitted)
+        *submitted = false;
+    if (readback_ok)
+        *readback_ok = false;
+    ret = hsan_lsw_control_begin(&guard);
+    if (ret)
+        return ret;
+    ret = hsan_lsw_l3intf_pair_commit_control_locked(owner, row, before_a, before_b, after_a, after_b,
+                                                    submitted, readback_ok);
+    hsan_lsw_control_end(&guard);
+    return ret;
+}
 EXPORT_SYMBOL_GPL(hsan_lsw_l3intf_pair_commit);
 
 /* One-shot vendor MCC register stream (hi_pfe_mcc_init @0x6c5c).
@@ -924,7 +1222,7 @@ static int hsan_lsw_mcc_update_raw(u32 csr, u32 mask, u32 value)
     return ret ? ret : (((readback ^ updated) & mask) ? -EUCLEAN : 0);
 }
 
-int hsan_lsw_mcc_commit(u32 *rows_written)
+static int hsan_lsw_mcc_commit_control_locked(u32 *rows_written)
 {
     static const u32 control[] = {
         0x0500000cU, 0x0200009cU, 0x02000094U,
@@ -1013,11 +1311,26 @@ out:
     mutex_unlock(&hsan_lsw_mcc_lock);
     return ret;
 }
+
+int hsan_lsw_mcc_commit(u32 *rows_written)
+{
+    struct hsan_lsw_control_guard guard;
+    int ret;
+
+    if (rows_written)
+        *rows_written = 0;
+    ret = hsan_lsw_control_begin(&guard);
+    if (ret)
+        return ret;
+    ret = hsan_lsw_mcc_commit_control_locked(rows_written);
+    hsan_lsw_control_end(&guard);
+    return ret;
+}
 EXPORT_SYMBOL_GPL(hsan_lsw_mcc_commit);
 
 /* OEM nhp_write @0x3ca0, one guarded PUB 0x101 row per boot */
 static bool hsan_lsw_nhp_written;
-int hsan_lsw_nhp_commit(struct device *owner, u32 row,
+static int hsan_lsw_nhp_commit_control_locked(struct device *owner, u32 row,
                         const u32 before[4], const u32 after[4])
 {
     struct hsan_bank *bank;
@@ -1067,6 +1380,20 @@ int hsan_lsw_nhp_commit(struct device *owner, u32 row,
     ret = 0;
 out:
     spin_unlock_irqrestore(&hsan_lsw_lock, flags);
+    return ret;
+}
+
+int hsan_lsw_nhp_commit(struct device *owner, u32 row,
+                        const u32 before[4], const u32 after[4])
+{
+    struct hsan_lsw_control_guard guard;
+    int ret;
+
+    ret = hsan_lsw_control_begin(&guard);
+    if (ret)
+        return ret;
+    ret = hsan_lsw_nhp_commit_control_locked(owner, row, before, after);
+    hsan_lsw_control_end(&guard);
     return ret;
 }
 EXPORT_SYMBOL_GPL(hsan_lsw_nhp_commit);
@@ -1250,7 +1577,7 @@ out:
     if (issued) {
         /* A successful row commit is also an irreversible command. Keep
          * this CSR owner loaded from the FIRST hardware write onward,
-         * including between the 12 OEM default rows. The PFE owner may
+         * including factory rows 1..11 and optional row 12. The PFE owner may
          * explicitly quarantine the engine after the full batch; pinning
          * alone never asserts that any IFC forwarding is operational.
          */
@@ -1265,17 +1592,49 @@ out:
         hsan_lsw_ifc_pin_module();
     return ret;
 }
-int hsan_lsw_ifc_commit(u16 index, const u32 control[7],
+static int hsan_lsw_ifc_commit_control_locked(u16 index, const u32 control[7],
                         const u32 data[8], u32 *last_status)
 {
     return hsan_lsw_ifc_commit_ordered(index, control, data, last_status, false);
 }
+
+int hsan_lsw_ifc_commit(u16 index, const u32 control[7],
+                        const u32 data[8], u32 *last_status)
+{
+    struct hsan_lsw_control_guard guard;
+    int ret;
+
+    if (last_status)
+        *last_status = 0;
+    ret = hsan_lsw_control_begin(&guard);
+    if (ret)
+        return ret;
+    ret = hsan_lsw_ifc_commit_control_locked(index, control, data, last_status);
+    hsan_lsw_control_end(&guard);
+    return ret;
+}
 EXPORT_SYMBOL_GPL(hsan_lsw_ifc_commit);
+
+static int hsan_lsw_ifc_dynamic_commit_control_locked(u16 index, const u32 control[7],
+                        const u32 data[8], u32 *last_status)
+{
+    return hsan_lsw_ifc_commit_ordered(index, control, data, last_status, true);
+}
 
 int hsan_lsw_ifc_dynamic_commit(u16 index, const u32 control[7],
                         const u32 data[8], u32 *last_status)
 {
-    return hsan_lsw_ifc_commit_ordered(index, control, data, last_status, true);
+    struct hsan_lsw_control_guard guard;
+    int ret;
+
+    if (last_status)
+        *last_status = 0;
+    ret = hsan_lsw_control_begin(&guard);
+    if (ret)
+        return ret;
+    ret = hsan_lsw_ifc_dynamic_commit_control_locked(index, control, data, last_status);
+    hsan_lsw_control_end(&guard);
+    return ret;
 }
 EXPORT_SYMBOL_GPL(hsan_lsw_ifc_dynamic_commit);
 
@@ -1374,7 +1733,7 @@ int hsan_lsw_napt_health(void)
 }
 EXPORT_SYMBOL_GPL(hsan_lsw_napt_health);
 
-int hsan_lsw_napt_partition_commit(const u32 words[5], u32 *last_status)
+static int hsan_lsw_napt_partition_commit_control_locked(const u32 words[5], u32 *last_status)
 {
     struct hsan_bank *bank;
     unsigned long flags;
@@ -1457,6 +1816,21 @@ int hsan_lsw_napt_partition_commit(const u32 words[5], u32 *last_status)
 out:
     *last_status = status;
     mutex_unlock(&hsan_lsw_napt_lock);
+    return ret;
+}
+
+int hsan_lsw_napt_partition_commit(const u32 words[5], u32 *last_status)
+{
+    struct hsan_lsw_control_guard guard;
+    int ret;
+
+    if (last_status)
+        *last_status = 0;
+    ret = hsan_lsw_control_begin(&guard);
+    if (ret)
+        return ret;
+    ret = hsan_lsw_napt_partition_commit_control_locked(words, last_status);
+    hsan_lsw_control_end(&guard);
     return ret;
 }
 EXPORT_SYMBOL_GPL(hsan_lsw_napt_partition_commit);
@@ -1602,19 +1976,49 @@ out:
     mutex_unlock(&hsan_lsw_napt_lock);
     return ret;
 }
-int hsan_lsw_napt_gro_v4_commit(const u32 words[19], u32 *hardware_id)
+static int hsan_lsw_napt_gro_v4_commit_control_locked(const u32 words[19], u32 *hardware_id)
 {
     return hsan_lsw_napt_gro_v4_submit(words, hardware_id, false, U32_MAX, 0);
+}
+
+int hsan_lsw_napt_gro_v4_commit(const u32 words[19], u32 *hardware_id)
+{
+    struct hsan_lsw_control_guard guard;
+    int ret;
+
+    if (hardware_id)
+        *hardware_id = U32_MAX;
+    ret = hsan_lsw_control_begin(&guard);
+    if (ret)
+        return ret;
+    ret = hsan_lsw_napt_gro_v4_commit_control_locked(words, hardware_id);
+    hsan_lsw_control_end(&guard);
+    return ret;
 }
 EXPORT_SYMBOL_GPL(hsan_lsw_napt_gro_v4_commit);
 
 /* Only a completed removal permits restoring the immutable original flow
  * Partial commands, query timeouts and the initial one-shot latch stay sealed
  */
-int hsan_lsw_napt_gro_v4_restore(u32 previous_id, u32 *hardware_id)
+static int hsan_lsw_napt_gro_v4_restore_control_locked(u32 previous_id, u32 *hardware_id)
 {
     return hsan_lsw_napt_gro_v4_submit(hsan_lsw_napt_gro_words, hardware_id,
                                        true, previous_id, 0);
+}
+
+int hsan_lsw_napt_gro_v4_restore(u32 previous_id, u32 *hardware_id)
+{
+    struct hsan_lsw_control_guard guard;
+    int ret;
+
+    if (hardware_id)
+        *hardware_id = U32_MAX;
+    ret = hsan_lsw_control_begin(&guard);
+    if (ret)
+        return ret;
+    ret = hsan_lsw_napt_gro_v4_restore_control_locked(previous_id, hardware_id);
+    hsan_lsw_control_end(&guard);
+    return ret;
 }
 EXPORT_SYMBOL_GPL(hsan_lsw_napt_gro_v4_restore);
 
@@ -1622,7 +2026,7 @@ EXPORT_SYMBOL_GPL(hsan_lsw_napt_gro_v4_restore);
  * A completed delete permits reusing its lane; uncertainty never permits it
  * The legacy one-shot latch remains set for every issued add transaction
  */
-int hsan_lsw_napt_gro_managed_enable(void)
+static int hsan_lsw_napt_gro_managed_enable_control_locked(void)
 {
     unsigned int i;
     int ret = 0;
@@ -1644,13 +2048,41 @@ int hsan_lsw_napt_gro_managed_enable(void)
     mutex_unlock(&hsan_lsw_napt_lock);
     return ret;
 }
+
+int hsan_lsw_napt_gro_managed_enable(void)
+{
+    struct hsan_lsw_control_guard guard;
+    int ret;
+
+    ret = hsan_lsw_control_begin(&guard);
+    if (ret)
+        return ret;
+    ret = hsan_lsw_napt_gro_managed_enable_control_locked();
+    hsan_lsw_control_end(&guard);
+    return ret;
+}
 EXPORT_SYMBOL_GPL(hsan_lsw_napt_gro_managed_enable);
 
-int hsan_lsw_napt_gro_managed_add(unsigned int lane, const u32 words[19], u32 *id)
+static int hsan_lsw_napt_gro_managed_add_control_locked(unsigned int lane, const u32 words[19], u32 *id)
 {
     if (!lane || lane > 4)
         return -EINVAL;
     return hsan_lsw_napt_gro_v4_submit(words, id, false, U32_MAX, lane);
+}
+
+int hsan_lsw_napt_gro_managed_add(unsigned int lane, const u32 words[19], u32 *id)
+{
+    struct hsan_lsw_control_guard guard;
+    int ret;
+
+    if (id)
+        *id = U32_MAX;
+    ret = hsan_lsw_control_begin(&guard);
+    if (ret)
+        return ret;
+    ret = hsan_lsw_napt_gro_managed_add_control_locked(lane, words, id);
+    hsan_lsw_control_end(&guard);
+    return ret;
 }
 EXPORT_SYMBOL_GPL(hsan_lsw_napt_gro_managed_add);
 
@@ -1673,7 +2105,7 @@ static bool hsan_lsw_gro_id_owned(u32 id)
 /* OEM get_age @0x5f70 queries the encoded hardware ID, not a RAM offset
  * This command only snapshots a flow; it neither refreshes nor reinstalls it
  */
-int hsan_lsw_napt_gro_v4_snapshot(u32 hardware_id, u32 *status, u32 *data)
+static int hsan_lsw_napt_gro_v4_snapshot_control_locked(u32 hardware_id, u32 *status, u32 *data)
 {
     unsigned int i;
     int ret;
@@ -1733,13 +2165,30 @@ out:
     mutex_unlock(&hsan_lsw_napt_lock);
     return ret;
 }
+
+int hsan_lsw_napt_gro_v4_snapshot(u32 hardware_id, u32 *status, u32 *data)
+{
+    struct hsan_lsw_control_guard guard;
+    int ret;
+
+    if (status)
+        *status = 0;
+    if (data)
+        *data = 0;
+    ret = hsan_lsw_control_begin(&guard);
+    if (ret)
+        return ret;
+    ret = hsan_lsw_napt_gro_v4_snapshot_control_locked(hardware_id, status, data);
+    hsan_lsw_control_end(&guard);
+    return ret;
+}
 EXPORT_SYMBOL_GPL(hsan_lsw_napt_gro_v4_snapshot);
 
 /* OEM IPv4 delete @0x5910..0x5ad0, for this boot's sole owned flow
  * Command completion removes a flow, not DMA ownership or GRO buffers
  * Neither the one-shot add latch nor any resource quarantine is cleared
  */
-int hsan_lsw_napt_gro_v4_remove(u32 hardware_id)
+static int hsan_lsw_napt_gro_v4_remove_control_locked(u32 hardware_id)
 {
     static const u32 clear_csrs[] = {
         0x03000104, 0x03000108, 0x0300010c, 0x03000110,
@@ -1820,6 +2269,19 @@ out:
     mutex_unlock(&hsan_lsw_napt_lock);
     return ret;
 }
+
+int hsan_lsw_napt_gro_v4_remove(u32 hardware_id)
+{
+    struct hsan_lsw_control_guard guard;
+    int ret;
+
+    ret = hsan_lsw_control_begin(&guard);
+    if (ret)
+        return ret;
+    ret = hsan_lsw_napt_gro_v4_remove_control_locked(hardware_id);
+    hsan_lsw_control_end(&guard);
+    return ret;
+}
 EXPORT_SYMBOL_GPL(hsan_lsw_napt_gro_v4_remove);
 
 
@@ -1867,7 +2329,7 @@ static bool hsan_ips_queues_verified;
 static bool hsan_ips_init_attempted;
 static bool hsan_ips_enable_attempted;
 
-int hsan_lsw_ips_queue_init(void)
+static int hsan_lsw_ips_queue_init_control_locked(void)
 {
     static const u32 regs[] = {
         0x44000078, 0x44000200, 0x4400020c, 0x44000218,
@@ -1912,12 +2374,25 @@ out:
     spin_unlock_irqrestore(&hsan_lsw_lock, flags);
     return ret;
 }
+
+int hsan_lsw_ips_queue_init(void)
+{
+    struct hsan_lsw_control_guard guard;
+    int ret;
+
+    ret = hsan_lsw_control_begin(&guard);
+    if (ret)
+        return ret;
+    ret = hsan_lsw_ips_queue_init_control_locked();
+    hsan_lsw_control_end(&guard);
+    return ret;
+}
 EXPORT_SYMBOL_GPL(hsan_lsw_ips_queue_init);
 
 /* OEM hi_dp_probe @0xfb4 enables IPS before FAM init and queue init.
  * Called only after the owner's verified cold reset; PIE RX is disabled.
  */
-int hsan_lsw_ips_boot_enable(void)
+static int hsan_lsw_ips_boot_enable_control_locked(void)
 {
     struct hsan_bank *bank;
     unsigned long flags;
@@ -1943,6 +2418,19 @@ int hsan_lsw_ips_boot_enable(void)
     ret = readl(bank->regs + offset) == 1 ? 0 : -EUCLEAN;
 out:
     spin_unlock_irqrestore(&hsan_lsw_lock, flags);
+    return ret;
+}
+
+int hsan_lsw_ips_boot_enable(void)
+{
+    struct hsan_lsw_control_guard guard;
+    int ret;
+
+    ret = hsan_lsw_control_begin(&guard);
+    if (ret)
+        return ret;
+    ret = hsan_lsw_ips_boot_enable_control_locked();
+    hsan_lsw_control_end(&guard);
     return ret;
 }
 EXPORT_SYMBOL_GPL(hsan_lsw_ips_boot_enable);
@@ -2162,7 +2650,7 @@ static int hsan_fam_update_raw(u32 csr, u32 mask, u32 value)
     return ret ? ret : (((readback ^ updated) & mask) ? -EUCLEAN : 0);
 }
 
-int hsan_lsw_fam_commit(const struct hsan_lsw_fam_config *cfg,
+static int hsan_lsw_fam_commit_control_locked(const struct hsan_lsw_fam_config *cfg,
                         u32 *polls, u32 *last_status)
 {
     struct hsan_bank *bank;
@@ -2274,6 +2762,24 @@ out:
     *last_status = status;
     mutex_unlock(&hsan_lsw_eqm_lock);
     mutex_unlock(&hsan_lsw_fam_lock);
+    return ret;
+}
+
+int hsan_lsw_fam_commit(const struct hsan_lsw_fam_config *cfg,
+                        u32 *polls, u32 *last_status)
+{
+    struct hsan_lsw_control_guard guard;
+    int ret;
+
+    if (polls)
+        *polls = 0;
+    if (last_status)
+        *last_status = 0;
+    ret = hsan_lsw_control_begin(&guard);
+    if (ret)
+        return ret;
+    ret = hsan_lsw_fam_commit_control_locked(cfg, polls, last_status);
+    hsan_lsw_control_end(&guard);
     return ret;
 }
 EXPORT_SYMBOL_GPL(hsan_lsw_fam_commit);
@@ -2445,7 +2951,7 @@ static bool hsan_lsw_eqm_args_valid(u8 table, const u32 *words,
            table < 128;
 }
 
-int hsan_lsw_eqm_write_table(u8 table, u16 row, const u32 *words,
+static int hsan_lsw_eqm_write_table_control_locked(u8 table, u16 row, const u32 *words,
                              u32 nr_words, u32 *last_status)
 {
     bool issued = false;
@@ -2473,9 +2979,25 @@ int hsan_lsw_eqm_write_table(u8 table, u16 row, const u32 *words,
         hsan_lsw_eqm_pin_module();
     return ret;
 }
+
+int hsan_lsw_eqm_write_table(u8 table, u16 row, const u32 *words,
+                             u32 nr_words, u32 *last_status)
+{
+    struct hsan_lsw_control_guard guard;
+    int ret;
+
+    if (last_status)
+        *last_status = 0;
+    ret = hsan_lsw_control_begin(&guard);
+    if (ret)
+        return ret;
+    ret = hsan_lsw_eqm_write_table_control_locked(table, row, words, nr_words, last_status);
+    hsan_lsw_control_end(&guard);
+    return ret;
+}
 EXPORT_SYMBOL_GPL(hsan_lsw_eqm_write_table);
 
-int hsan_lsw_eqm_read_table(u8 table, u16 row, u32 *words,
+static int hsan_lsw_eqm_read_table_control_locked(u8 table, u16 row, u32 *words,
                             u32 nr_words, u32 *last_status)
 {
     bool issued = false;
@@ -2503,6 +3025,22 @@ int hsan_lsw_eqm_read_table(u8 table, u16 row, u32 *words,
         hsan_lsw_eqm_pin_module();
     return ret;
 }
+
+int hsan_lsw_eqm_read_table(u8 table, u16 row, u32 *words,
+                            u32 nr_words, u32 *last_status)
+{
+    struct hsan_lsw_control_guard guard;
+    int ret;
+
+    if (last_status)
+        *last_status = 0;
+    ret = hsan_lsw_control_begin(&guard);
+    if (ret)
+        return ret;
+    ret = hsan_lsw_eqm_read_table_control_locked(table, row, words, nr_words, last_status);
+    hsan_lsw_control_end(&guard);
+    return ret;
+}
 EXPORT_SYMBOL_GPL(hsan_lsw_eqm_read_table);
 
 /* Explicit opt-in caller only. A matching hardware readback proves one
@@ -2510,7 +3048,7 @@ EXPORT_SYMBOL_GPL(hsan_lsw_eqm_read_table);
  * Reads/writes are kept under one EQM mutex to prevent a concurrent client
  * from modifying the same shared FIFO between commit and verification.
  */
-int hsan_lsw_eqm_write_verify_table(u8 table, u16 row, const u32 *words,
+static int hsan_lsw_eqm_write_verify_table_control_locked(u8 table, u16 row, const u32 *words,
                                     const u32 *expected_readback,
                                     u32 nr_words, u32 *last_status)
 {
@@ -2561,6 +3099,24 @@ out:
      */
     if (issued || ret == -EIO || ret == -ETIMEDOUT || ret == -EUCLEAN)
         hsan_lsw_eqm_pin_module();
+    return ret;
+}
+
+int hsan_lsw_eqm_write_verify_table(u8 table, u16 row, const u32 *words,
+                                    const u32 *expected_readback,
+                                    u32 nr_words, u32 *last_status)
+{
+    struct hsan_lsw_control_guard guard;
+    int ret;
+
+    if (last_status)
+        *last_status = 0;
+    ret = hsan_lsw_control_begin(&guard);
+    if (ret)
+        return ret;
+    ret = hsan_lsw_eqm_write_verify_table_control_locked(table, row, words,
+                                     expected_readback, nr_words, last_status);
+    hsan_lsw_control_end(&guard);
     return ret;
 }
 EXPORT_SYMBOL_GPL(hsan_lsw_eqm_write_verify_table);
