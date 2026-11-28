@@ -152,6 +152,8 @@ int hsan_lsw_fam_commit(const struct hsan_lsw_fam_config *cfg,
 bool hsan_lsw_bank_mapped(u8 bank);
 int hsan_lsw_nhp_commit(struct device *owner, u32 row,
                         const u32 before[4], const u32 after[4]);
+int hsan_lsw_napt_gro_managed_enable(void);
+int hsan_lsw_napt_gro_managed_add(unsigned int lane, const u32 words[19], u32 *id);
 int hsan_lsw_napt_gro_v4_commit(const u32 words[19], u32 *hardware_id);
 int hsan_lsw_napt_gro_v4_snapshot(u32 hardware_id, u32 *status, u32 *data);
 int hsan_lsw_napt_gro_v4_remove(u32 hardware_id);

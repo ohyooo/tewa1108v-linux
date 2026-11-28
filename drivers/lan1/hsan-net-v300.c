@@ -44,6 +44,9 @@
 #include "hsan-lsw-csr.h"
 #include "hsan-lsw-dp.h"
 #include "hsan-lsw-pfe.h"
+#include "hsan-pfe-gro-v4-plan.h"
+#include <net/inet_hashtables.h>
+#include <net/tcp.h>
 #include "hsan-gemac-lan1.h"
 #include "hsan-pie-rx-desc.h"
 #include <linux/spinlock.h>
@@ -174,6 +177,18 @@ enum hsan_net_open_stage {
     HSAN_NET_OPEN_ACTIVE,
 };
 
+enum hsan_gro_auto_phase {
+    HSAN_GRO_AUTO_EMPTY, HSAN_GRO_AUTO_CANDIDATE, HSAN_GRO_AUTO_PENDING,
+    HSAN_GRO_AUTO_ACTIVE, HSAN_GRO_AUTO_FAILED,
+};
+struct hsan_gro_auto_slot {
+    struct sock *sk;
+    struct hsan_pfe_gro_v4_tuple key;
+    unsigned int state, seen;
+    u32 id;
+    u64 aggregates, aggregate_bytes;
+};
+
 struct hsan_v300 {
 	bool boot_reset_verified;
 	bool boot_globals_verified;
@@ -181,6 +196,12 @@ struct hsan_v300 {
 	struct net_device *ndev;
     struct hsan_gro_capture_record *gro_capture;
     struct hsan_gro_capture_file *gro_capture_file;
+    bool gro_auto;
+    bool gro_auto_stopping;
+    u32 gro_auto_fault;
+    u64 gro_auto_adds, gro_auto_removes, gro_auto_full;
+    struct delayed_work gro_auto_work;
+    struct hsan_gro_auto_slot gro_auto_slots[4];
     __be32 gro_saddr, gro_daddr;
     __be16 gro_sport, gro_dport;
 	void __iomem *regs;
@@ -375,21 +396,33 @@ static int hsan_gro_capture_setup(struct hsan_v300 *p)
     pfe = of_find_compatible_node(NULL, NULL, "hsan,pfe");
     if (!pfe)
         return -ENODEV;
+    if (of_property_read_bool(pfe, "hsan,experimental-gro-auto-local-tcp")) {
+        if (!of_device_is_available(pfe) || p->gro_channels != 4 ||
+            of_find_property(pfe, "hsan,experimental-gro-v4-tcp-flow", NULL)) {
+            of_node_put(pfe);
+            return -EINVAL;
+        }
+        p->gro_auto = true;
+        ret = 0;
+    } else {
     ret = of_device_is_available(pfe) &&
           of_property_count_u32_elems(pfe,
               "hsan,experimental-gro-v4-tcp-flow") == 4 ?
           of_property_read_u32_array(pfe,
               "hsan,experimental-gro-v4-tcp-flow", tuple, 4) : -EINVAL;
+    }
     of_node_put(pfe);
     if (ret)
         return ret;
-    if (!tuple[2] || tuple[2] > U16_MAX ||
-        !tuple[3] || tuple[3] > U16_MAX)
+    if (!p->gro_auto && (!tuple[2] || tuple[2] > U16_MAX ||
+        !tuple[3] || tuple[3] > U16_MAX))
         return -EINVAL;
+    if (!p->gro_auto) {
     p->gro_saddr = htonl(tuple[0]);
     p->gro_daddr = htonl(tuple[1]);
     p->gro_sport = htons(tuple[2]);
     p->gro_dport = htons(tuple[3]);
+    }
     p->gro_capture = devm_kcalloc(p->dev, 3, sizeof(*p->gro_capture), GFP_KERNEL);
     file = devm_kzalloc(p->dev, sizeof(*file), GFP_KERNEL);
     if (!p->gro_capture || !file)
@@ -1209,13 +1242,14 @@ static unsigned int hsan_gro_v4_frame_length(const struct hsan_v300 *p,
     if (ip->version != 4 || ip->ihl != 5 || ip->protocol != IPPROTO_TCP ||
         expected < ETH_HLEN + sizeof(*ip) + sizeof(*tcp) ||
         (ip->frag_off & htons(IP_MF | IP_OFFSET)) ||
-        ip->saddr != p->gro_saddr || ip->daddr != p->gro_daddr ||
         ip_fast_csum(ip, 5))
         return 0;
     tcp = (const struct tcphdr *)(ip + 1);
-    if (tcp->doff != 5 || tcp->source != p->gro_sport ||
-        tcp->dest != p->gro_dport || tcp->syn || tcp->fin ||
+    if (tcp->doff != 5 || tcp->syn || tcp->fin ||
         tcp->rst || tcp->urg)
+        return 0;
+    if (!p->gro_auto && (ip->saddr != p->gro_saddr || ip->daddr != p->gro_daddr ||
+        tcp->source != p->gro_sport || tcp->dest != p->gro_dport))
         return 0;
     return expected;
 }
@@ -1234,6 +1268,208 @@ static bool hsan_gro_v4_tcp_valid(const struct hsan_v300 *p,
     length = ntohs(ip->tot_len) - sizeof(*ip);
     return !csum_tcpudp_magic(ip->saddr, ip->daddr, length, IPPROTO_TCP,
                              csum_partial(tcp, length, 0));
+}
+
+/* Only CPU socket references live here; no hardware-visible allocation
+ * is released when a connection closes or a flow command completes
+ */
+static void hsan_gro_auto_work(struct work_struct *work)
+{
+    struct hsan_v300 *p = container_of(to_delayed_work(work),
+                                      struct hsan_v300, gro_auto_work);
+    unsigned long flags;
+    unsigned int slot;
+    bool occupied = false;
+
+    for (slot = 0; slot < 4; slot++) {
+        struct hsan_gro_auto_slot *entry = &p->gro_auto_slots[slot];
+        struct hsan_pfe_gro_v4_tuple key;
+        struct sock *sk;
+        unsigned int state;
+        u32 id = U32_MAX, data = 0;
+        int ret = 0;
+        bool release = false;
+
+        spin_lock_irqsave(&p->tx_lock, flags);
+        if (p->gro_auto_stopping || p->gro_auto_fault) {
+            spin_unlock_irqrestore(&p->tx_lock, flags);
+            return;
+        }
+        state = entry->state;
+        sk = entry->sk;
+        key = entry->key;
+        spin_unlock_irqrestore(&p->tx_lock, flags);
+        if (!state || state == HSAN_GRO_AUTO_FAILED)
+            continue;
+        if (state == HSAN_GRO_AUTO_PENDING &&
+            READ_ONCE(sk->sk_state) == TCP_ESTABLISHED) {
+            ret = hsan_lsw_pfe_gro_auto_add(slot, &key, &id);
+            spin_lock_irqsave(&p->tx_lock, flags);
+            if (!ret) {
+                entry->state = HSAN_GRO_AUTO_ACTIVE;
+                entry->id = id;
+                p->gro_auto_adds++;
+            }
+            spin_unlock_irqrestore(&p->tx_lock, flags);
+            state = ret ? HSAN_GRO_AUTO_FAILED : HSAN_GRO_AUTO_ACTIVE;
+        }
+        if (!ret && state == HSAN_GRO_AUTO_ACTIVE) {
+            bool expired = READ_ONCE(sk->sk_state) != TCP_ESTABLISHED;
+
+            if (!expired) {
+                ret = hsan_lsw_pfe_gro_auto_query(slot, &data);
+                /* Native pfe get_age maps only codes3/4 to fresh
+                 * This is flow freshness, never a DMA STOP observation
+                 */
+                expired = !ret && (data & 7) != 3 && (data & 7) != 4;
+            }
+            if (!ret && expired) {
+                ret = hsan_lsw_pfe_gro_auto_remove(slot);
+                if (!ret) {
+                    release = true;
+                    spin_lock_irqsave(&p->tx_lock, flags);
+                    p->gro_auto_removes++;
+                    spin_unlock_irqrestore(&p->tx_lock, flags);
+                }
+            }
+        } else if (!ret && READ_ONCE(sk->sk_state) != TCP_ESTABLISHED) {
+            release = true;
+        }
+        spin_lock_irqsave(&p->tx_lock, flags);
+        if (ret) {
+            entry->state = HSAN_GRO_AUTO_FAILED;
+            if (!p->gro_auto_fault)
+                p->gro_auto_fault = -ret;
+            entry->sk = NULL;
+            release = true;
+        } else if (release) {
+            entry->state = HSAN_GRO_AUTO_EMPTY;
+            entry->sk = NULL;
+            entry->id = U32_MAX;
+        } else {
+            occupied = true;
+        }
+        spin_unlock_irqrestore(&p->tx_lock, flags);
+        if (release)
+            sock_gen_put(sk);
+    }
+    spin_lock_irqsave(&p->tx_lock, flags);
+    if (occupied && !p->gro_auto_stopping && !p->gro_auto_fault)
+        queue_delayed_work(system_wq, &p->gro_auto_work, HZ);
+    spin_unlock_irqrestore(&p->tx_lock, flags);
+}
+
+static void hsan_gro_auto_observe(struct hsan_v300_rx_queue *q,
+                                  const struct sk_buff *skb)
+{
+    struct hsan_v300 *p = q->parent;
+    const struct iphdr *ip;
+    const struct tcphdr *tcp;
+    struct hsan_pfe_gro_v4_tuple key;
+    struct sock *sk;
+    unsigned long flags;
+    unsigned int expected, length, slot;
+    int available = -1;
+    bool transferred = false;
+
+    if (!p->gro_auto || q->channel >= HSAN_NET_RX_CHANNELS ||
+        READ_ONCE(p->gro_auto_stopping) || READ_ONCE(p->gro_auto_fault))
+        return;
+    expected = hsan_gro_v4_frame_length(p, skb);
+    if (!expected || expected > skb->len ||
+        (expected != skb->len && skb->len > ETH_ZLEN))
+        return;
+    ip = (const struct iphdr *)(skb->data + ETH_HLEN);
+    tcp = (const struct tcphdr *)(ip + 1);
+    length = ntohs(ip->tot_len) - sizeof(*ip);
+    if (!tcp->ack || length <= sizeof(*tcp) ||
+        csum_tcpudp_magic(ip->saddr, ip->daddr, length, IPPROTO_TCP,
+                          csum_partial(tcp, length, 0)))
+        return;
+    rcu_read_lock();
+    sk = inet_lookup_established(dev_net(p->ndev), ip->saddr, tcp->source,
+                                  ip->daddr, tcp->dest, p->ndev->ifindex);
+    rcu_read_unlock();
+    if (!sk)
+        return;
+    if (READ_ONCE(sk->sk_state) != TCP_ESTABLISHED) {
+        sock_gen_put(sk);
+        return;
+    }
+    key = (struct hsan_pfe_gro_v4_tuple) {
+        .saddr_host = ntohl(ip->saddr), .daddr_host = ntohl(ip->daddr),
+        .sport_host = ntohs(tcp->source), .dport_host = ntohs(tcp->dest),
+    };
+    spin_lock_irqsave(&p->tx_lock, flags);
+    if (p->gro_auto_stopping || p->gro_auto_fault)
+        goto unlock;
+    for (slot = 0; slot < 4; slot++) {
+        struct hsan_gro_auto_slot *entry = &p->gro_auto_slots[slot];
+
+        if (!entry->state) {
+            if (available < 0)
+                available = slot;
+            continue;
+        }
+        if (entry->key.saddr_host != key.saddr_host ||
+            entry->key.daddr_host != key.daddr_host ||
+            entry->key.sport_host != key.sport_host ||
+            entry->key.dport_host != key.dport_host)
+            continue;
+        if (entry->state == HSAN_GRO_AUTO_CANDIDATE && ++entry->seen >= 5) {
+            entry->state = HSAN_GRO_AUTO_PENDING;
+            mod_delayed_work(system_wq, &p->gro_auto_work, 0);
+        }
+        goto unlock;
+    }
+    if (available >= 0) {
+        struct hsan_gro_auto_slot *entry = &p->gro_auto_slots[available];
+
+        entry->key = key;
+        entry->sk = sk;
+        entry->seen = 1;
+        entry->aggregates = 0;
+        entry->aggregate_bytes = 0;
+        entry->id = U32_MAX;
+        entry->state = HSAN_GRO_AUTO_CANDIDATE;
+        transferred = true;
+        queue_delayed_work(system_wq, &p->gro_auto_work, HZ);
+    } else {
+        p->gro_auto_full++;
+    }
+unlock:
+    spin_unlock_irqrestore(&p->tx_lock, flags);
+    if (!transferred)
+        sock_gen_put(sk);
+}
+
+static void hsan_gro_auto_account(struct hsan_v300_rx_queue *q,
+                                  const struct sk_buff *skb)
+{
+    struct hsan_v300 *p = q->parent;
+    const struct iphdr *ip;
+    const struct tcphdr *tcp;
+    unsigned long flags;
+    unsigned int slot;
+
+    if (!p->gro_auto || q->channel < HSAN_NET_RX_CHANNELS || skb->len <= ETH_FRAME_LEN)
+        return;
+    ip = (const struct iphdr *)(skb->data + ETH_HLEN);
+    tcp = (const struct tcphdr *)(ip + 1);
+    spin_lock_irqsave(&p->tx_lock, flags);
+    for (slot = 0; slot < 4; slot++) {
+        struct hsan_gro_auto_slot *entry = &p->gro_auto_slots[slot];
+
+        if (!entry->state || entry->key.saddr_host != ntohl(ip->saddr) ||
+            entry->key.daddr_host != ntohl(ip->daddr) ||
+            entry->key.sport_host != ntohs(tcp->source) ||
+            entry->key.dport_host != ntohs(tcp->dest))
+            continue;
+        entry->aggregates++;
+        entry->aggregate_bytes += skb->len;
+        break;
+    }
+    spin_unlock_irqrestore(&p->tx_lock, flags);
 }
 
 static void hsan_gro_discard_partial(struct hsan_v300_rx_queue *q, bool error)
@@ -1400,6 +1636,8 @@ static bool hsan_rx_flush_kick_batch(struct hsan_v300_rx_queue *q,
                 hsan_rx_account(q, false, 0, true, false);
                 continue;
             }
+            hsan_gro_auto_account(q, skb);
+            hsan_gro_auto_observe(q, skb);
             memset(skb->cb, 0, sizeof(skb->cb));
             skb_record_rx_queue(skb, q->channel);
             skb->protocol = eth_type_trans(skb, p->ndev);
@@ -3600,6 +3838,10 @@ static int hsan_open_datapath(struct net_device *ndev)
             goto err_published;
         }
         netif_start_queue(ndev);
+        if (p->gro_auto) {
+            p->gro_auto_stopping = false;
+            queue_delayed_work(system_wq, &p->gro_auto_work, HZ);
+        }
         WRITE_ONCE(p->soft_paused, false);
         WRITE_ONCE(p->open_stage, HSAN_NET_OPEN_ACTIVE);
         spin_unlock_irqrestore(&p->tx_lock, flags);
@@ -3819,6 +4061,7 @@ static int hsan_stop(struct net_device *ndev)
     netif_tx_disable(ndev);
     spin_lock_irqsave(&p->tx_lock, flags);
     WRITE_ONCE(p->active, false);
+    p->gro_auto_stopping = true;
     if (p->dma_ever_started && !retain) {
         hsan_lsw_dp_fam_stop_fence();
         p->stop_fam_cpu_fenced = true;
@@ -3846,6 +4089,7 @@ static int hsan_stop(struct net_device *ndev)
         }
     }
     hsan_disable_owned_napi(p);
+    cancel_delayed_work_sync(&p->gro_auto_work);
     spin_lock_irqsave(&p->tx_lock, flags);
     p->stop_rx_irq_masked_channels = 0;
     p->stop_rx_irq_pending_channels = 0;
@@ -5652,6 +5896,8 @@ static int hsan_probe(struct platform_device *pdev)
     p = netdev_priv(ndev);
     p->dev = dev;
     p->ndev = ndev;
+    p->gro_auto_stopping = true;
+    INIT_DELAYED_WORK(&p->gro_auto_work, hsan_gro_auto_work);
     p->tx_count = BIT(HSAN_NET_TX_ORDER);
     p->tx_mask = p->tx_count - 1;
     p->gro_channels = gro_channels;
@@ -5800,6 +6046,10 @@ static void hsan_remove(struct platform_device *pdev)
      */
     for (ch = 0; ch < p->rx_channels; ch++)
         netif_napi_del(&p->rxq[ch].napi);
+    cancel_delayed_work_sync(&p->gro_auto_work);
+    for (ch = 0; ch < 4; ch++)
+        if (p->gro_auto_slots[ch].sk)
+            sock_gen_put(p->gro_auto_slots[ch].sk);
     if (!p->dma_ever_started)
         hsan_free_unstarted(p);
     else
@@ -5859,7 +6109,47 @@ static ssize_t rx_queue_packets_show(struct device *dev,
     return length;
 }
 static DEVICE_ATTR_RO(rx_queue_packets);
+static ssize_t gro_auto_state_show(struct device *dev,
+                                  struct device_attribute *attr, char *buf)
+{
+    struct net_device *ndev = dev_get_drvdata(dev);
+    struct hsan_v300 *p;
+    unsigned long flags;
+    unsigned int slot;
+    u32 rows[4][3], fault;
+    u64 adds, removes, full, aggregates[4], bytes[4];
+    ssize_t length;
+
+    if (!ndev)
+        return -ENODATA;
+    p = netdev_priv(ndev);
+    spin_lock_irqsave(&p->tx_lock, flags);
+    fault = p->gro_auto_fault;
+    adds = p->gro_auto_adds;
+    removes = p->gro_auto_removes;
+    full = p->gro_auto_full;
+    for (slot = 0; slot < 4; slot++) {
+        rows[slot][0] = p->gro_auto_slots[slot].state;
+        rows[slot][1] = p->gro_auto_slots[slot].seen;
+        rows[slot][2] = p->gro_auto_slots[slot].id;
+        aggregates[slot] = p->gro_auto_slots[slot].aggregates;
+        bytes[slot] = p->gro_auto_slots[slot].aggregate_bytes;
+    }
+    spin_unlock_irqrestore(&p->tx_lock, flags);
+    length = sysfs_emit(buf, "enabled=%u fault=%u adds=%llu removes=%llu full=%llu\n",
+                        p->gro_auto, fault, (unsigned long long)adds,
+                        (unsigned long long)removes, (unsigned long long)full);
+    for (slot = 0; slot < 4; slot++)
+        length += sysfs_emit_at(buf, length, "slot=%u state=%u seen=%u id=%#x aggregates=%llu aggregate_bytes=%llu\n",
+                                slot, rows[slot][0], rows[slot][1], rows[slot][2],
+                                (unsigned long long)aggregates[slot],
+                                (unsigned long long)bytes[slot]);
+    return length;
+}
+static DEVICE_ATTR_RO(gro_auto_state);
+
 static struct attribute *hsan_rx_attrs[] = {
+    &dev_attr_gro_auto_state.attr,
     &dev_attr_rx_queue_packets.attr,
     NULL,
 };

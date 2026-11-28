@@ -150,4 +150,11 @@ struct hsan_pfe_lifecycle_snapshot {
 int hsan_lsw_pfe_lifecycle_snapshot(struct hsan_pfe_lifecycle_snapshot *out);
 /* Exact cold-boot CPU route image only; not offload/traffic/STOP acceptance. */
 bool hsan_lsw_pfe_cpu_bootstrap_ready(void);
+
+struct hsan_pfe_gro_v4_tuple;
+int hsan_lsw_pfe_gro_auto_add(unsigned int slot,
+                             const struct hsan_pfe_gro_v4_tuple *key, u32 *id);
+int hsan_lsw_pfe_gro_auto_query(unsigned int slot, u32 *data);
+int hsan_lsw_pfe_gro_auto_remove(unsigned int slot);
+
 #endif

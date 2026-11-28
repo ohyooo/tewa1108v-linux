@@ -150,6 +150,16 @@ static u32 hsan_lsw_napt_gro_id = U32_MAX;
 static bool hsan_lsw_napt_flow_uncertain;
 static bool hsan_lsw_napt_gro_removed;
 static u32 hsan_lsw_napt_gro_words[19];
+struct hsan_managed_gro_flow {
+    u32 id;
+    u32 words[19];
+    bool attempted;
+    bool removed;
+    bool valid;
+};
+static struct hsan_managed_gro_flow hsan_managed_gro[4];
+static bool hsan_managed_gro_enabled;
+
 static atomic_t hsan_lsw_napt_module_pinned = ATOMIC_INIT(0);
 static bool hsan_lsw_napt_private_span(u32 address, u32 bytes)
 {
@@ -1456,7 +1466,7 @@ EXPORT_SYMBOL_GPL(hsan_lsw_napt_partition_commit);
  * completed partition commands, never from clearing an uncertainty flag
  */
 static int hsan_lsw_napt_gro_v4_submit(const u32 words[19], u32 *hardware_id,
-                                     bool restoring, u32 previous_id)
+                                     bool restoring, u32 previous_id, unsigned int lane)
 {
     static const struct { u32 csr; u8 word; } params[] = {
         {0x030000a8,1}, {0x030000b0,3}, {0x030000ac,2},
@@ -1472,8 +1482,13 @@ static int hsan_lsw_napt_gro_v4_submit(const u32 words[19], u32 *hardware_id,
     unsigned int i;
     u32 offset, status;
     int ret;
+    struct hsan_managed_gro_flow *record = NULL;
+    bool *attempted = &hsan_lsw_napt_gro_attempted;
+    bool *removed = &hsan_lsw_napt_gro_removed;
+    u32 *flow_id = &hsan_lsw_napt_gro_id;
+    u32 *flow_words = hsan_lsw_napt_gro_words;
 
-    if (!hardware_id)
+    if (lane > 4 || !hardware_id)
         return -EINVAL;
     *hardware_id = U32_MAX;
     if (!words)
@@ -1481,9 +1496,20 @@ static int hsan_lsw_napt_gro_v4_submit(const u32 words[19], u32 *hardware_id,
     if (!READ_ONCE(experimental_allow_lsw_writes))
         return -EACCES;
     mutex_lock(&hsan_lsw_napt_lock);
+    if (!!lane != hsan_managed_gro_enabled) {
+        ret = -EACCES;
+        goto out;
+    }
+    if (lane) {
+        record = &hsan_managed_gro[lane - 1];
+        attempted = &record->attempted;
+        removed = &record->removed;
+        flow_id = &record->id;
+        flow_words = record->words;
+    }
     if (words[0] != 0x00010100U || words[1] != 0x04020000U ||
         words[2] != 0x50000004U || words[12] != 0x00000603U ||
-        words[15] != 0x88000000U) {
+        words[15] != (0x80000000U | ((lane ? lane : 1U) << 27))) {
         ret = -EINVAL;
         goto out;
     }
@@ -1501,12 +1527,11 @@ static int hsan_lsw_napt_gro_v4_submit(const u32 words[19], u32 *hardware_id,
         ret = -EUCLEAN;
         goto out;
     }
-    if (restoring && (!hsan_lsw_napt_gro_removed ||
-                      previous_id != hsan_lsw_napt_gro_id)) {
+    if (restoring && (!*removed || previous_id != *flow_id)) {
         ret = -EINVAL;
         goto out;
     }
-    if (!restoring && hsan_lsw_napt_gro_attempted) {
+    if (!restoring && *attempted && (!lane || !*removed)) {
         ret = -EALREADY;
         goto out;
     }
@@ -1526,6 +1551,7 @@ static int hsan_lsw_napt_gro_v4_submit(const u32 words[19], u32 *hardware_id,
         ret = -EBUSY;
         goto out;
     }
+    *attempted = true;
     hsan_lsw_napt_gro_attempted = true;
     hsan_lsw_napt_flow_uncertain = true;
     for (i = 0; i < ARRAY_SIZE(params); i++) {
@@ -1555,11 +1581,22 @@ static int hsan_lsw_napt_gro_v4_submit(const u32 words[19], u32 *hardware_id,
         ret = -EIO;
         goto out;
     }
+    if (lane) {
+        for (i = 0; i < ARRAY_SIZE(hsan_managed_gro); i++) {
+            if (&hsan_managed_gro[i] != record && hsan_managed_gro[i].valid &&
+                hsan_managed_gro[i].id == (status & GENMASK(20, 0))) {
+                ret = -EUCLEAN;
+                goto out;
+            }
+        }
+    }
     *hardware_id = status & GENMASK(20, 0);
-    hsan_lsw_napt_gro_id = *hardware_id;
+    *flow_id = *hardware_id;
+    if (record)
+        record->valid = true;
     if (!restoring)
-        memcpy(hsan_lsw_napt_gro_words, words, sizeof(hsan_lsw_napt_gro_words));
-    hsan_lsw_napt_gro_removed = false;
+        memcpy(flow_words, words, sizeof(hsan_lsw_napt_gro_words));
+    *removed = false;
     hsan_lsw_napt_flow_uncertain = false;
 out:
     mutex_unlock(&hsan_lsw_napt_lock);
@@ -1567,7 +1604,7 @@ out:
 }
 int hsan_lsw_napt_gro_v4_commit(const u32 words[19], u32 *hardware_id)
 {
-    return hsan_lsw_napt_gro_v4_submit(words, hardware_id, false, U32_MAX);
+    return hsan_lsw_napt_gro_v4_submit(words, hardware_id, false, U32_MAX, 0);
 }
 EXPORT_SYMBOL_GPL(hsan_lsw_napt_gro_v4_commit);
 
@@ -1577,9 +1614,61 @@ EXPORT_SYMBOL_GPL(hsan_lsw_napt_gro_v4_commit);
 int hsan_lsw_napt_gro_v4_restore(u32 previous_id, u32 *hardware_id)
 {
     return hsan_lsw_napt_gro_v4_submit(hsan_lsw_napt_gro_words, hardware_id,
-                                       true, previous_id);
+                                       true, previous_id, 0);
 }
 EXPORT_SYMBOL_GPL(hsan_lsw_napt_gro_v4_restore);
+
+/* Managed mode owns four independent GRO lanes and the common L3/NHP1
+ * A completed delete permits reusing its lane; uncertainty never permits it
+ * The legacy one-shot latch remains set for every issued add transaction
+ */
+int hsan_lsw_napt_gro_managed_enable(void)
+{
+    unsigned int i;
+    int ret = 0;
+
+    if (!READ_ONCE(experimental_allow_lsw_writes))
+        return -EACCES;
+    mutex_lock(&hsan_lsw_napt_lock);
+    if (!hsan_lsw_napt_partition_complete)
+        ret = -EHOSTDOWN;
+    else if (hsan_lsw_napt_flow_uncertain)
+        ret = -EUCLEAN;
+    else if (hsan_lsw_napt_gro_attempted || hsan_managed_gro_enabled)
+        ret = -EALREADY;
+    else {
+        for (i = 0; i < ARRAY_SIZE(hsan_managed_gro); i++)
+            hsan_managed_gro[i].id = U32_MAX;
+        hsan_managed_gro_enabled = true;
+    }
+    mutex_unlock(&hsan_lsw_napt_lock);
+    return ret;
+}
+EXPORT_SYMBOL_GPL(hsan_lsw_napt_gro_managed_enable);
+
+int hsan_lsw_napt_gro_managed_add(unsigned int lane, const u32 words[19], u32 *id)
+{
+    if (!lane || lane > 4)
+        return -EINVAL;
+    return hsan_lsw_napt_gro_v4_submit(words, id, false, U32_MAX, lane);
+}
+EXPORT_SYMBOL_GPL(hsan_lsw_napt_gro_managed_add);
+
+static struct hsan_managed_gro_flow *hsan_lsw_managed_gro_find(u32 id)
+{
+    unsigned int i;
+
+    for (i = 0; i < ARRAY_SIZE(hsan_managed_gro); i++)
+        if (hsan_managed_gro[i].valid && hsan_managed_gro[i].id == id)
+            return &hsan_managed_gro[i];
+    return NULL;
+}
+
+static bool hsan_lsw_gro_id_owned(u32 id)
+{
+    return hsan_managed_gro_enabled ? hsan_lsw_managed_gro_find(id) != NULL :
+                                     id == hsan_lsw_napt_gro_id;
+}
 
 /* OEM get_age @0x5f70 queries the encoded hardware ID, not a RAM offset
  * This command only snapshots a flow; it neither refreshes nor reinstalls it
@@ -1600,7 +1689,7 @@ int hsan_lsw_napt_gro_v4_snapshot(u32 hardware_id, u32 *status, u32 *data)
         ret = -EHOSTDOWN;
         goto out;
     }
-    if (hardware_id != hsan_lsw_napt_gro_id) {
+    if (!hsan_lsw_gro_id_owned(hardware_id)) {
         ret = -EINVAL;
         goto out;
     }
@@ -1662,14 +1751,19 @@ int hsan_lsw_napt_gro_v4_remove(u32 hardware_id)
     unsigned int i;
     u32 status;
     int ret;
+    struct hsan_managed_gro_flow *record;
+    bool *removed = &hsan_lsw_napt_gro_removed;
 
     if (hardware_id > GENMASK(20, 0))
         return -EINVAL;
     if (!READ_ONCE(experimental_allow_lsw_writes))
         return -EACCES;
     mutex_lock(&hsan_lsw_napt_lock);
+    record = hsan_lsw_managed_gro_find(hardware_id);
+    if (hsan_managed_gro_enabled && record)
+        removed = &record->removed;
     if (!hsan_lsw_napt_partition_complete ||
-        hardware_id != hsan_lsw_napt_gro_id) {
+        !hsan_lsw_gro_id_owned(hardware_id)) {
         ret = -EHOSTDOWN;
         goto out;
     }
@@ -1677,7 +1771,7 @@ int hsan_lsw_napt_gro_v4_remove(u32 hardware_id)
         ret = -EUCLEAN;
         goto out;
     }
-    if (hsan_lsw_napt_gro_removed) {
+    if (*removed) {
         ret = -EALREADY;
         goto out;
     }
@@ -1719,7 +1813,9 @@ int hsan_lsw_napt_gro_v4_remove(u32 hardware_id)
         ret = -ENOENT;
         goto out;
     }
-    hsan_lsw_napt_gro_removed = true;
+    *removed = true;
+    if (hsan_managed_gro_enabled && record)
+        record->valid = false;
 out:
     mutex_unlock(&hsan_lsw_napt_lock);
     return ret;

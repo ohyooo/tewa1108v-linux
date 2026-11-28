@@ -343,6 +343,10 @@ struct hsan_pfe_state {
     bool gro_resources_ready;
     bool gro_flow_prepared;
     bool gro_flow_installed;
+    bool gro_auto_requested;
+    bool gro_auto_ready;
+    u32 gro_auto_ids[4];
+    u32 gro_auto_words[4][HSAN_PFE_GRO_WORK_WORDS];
     struct mutex gro_flow_lock;
     u32 gro_flow_words[HSAN_PFE_GRO_WORK_WORDS];
     u32 gro_flow_hardware_id;
@@ -1374,6 +1378,12 @@ static struct attribute *hsan_pfe_attrs[] = {
 };
 ATTRIBUTE_GROUPS(hsan_pfe);
 
+static bool hsan_pfe_gro_requested(const struct device_node *node)
+{
+    return of_find_property(node, "hsan,experimental-gro-v4-tcp-flow", NULL) ||
+           of_property_read_bool(node, "hsan,experimental-gro-auto-local-tcp");
+}
+
 static int hsan_pfe_gro_flow(struct platform_device *pdev,
                             struct hsan_pfe_state *state, bool submit)
 {
@@ -1382,9 +1392,31 @@ static int hsan_pfe_gro_flow(struct platform_device *pdev,
     u32 tuple[4], post_partition;
     u8 candidate[40] = {0};
     int ret;
+    bool automatic = of_property_read_bool(pdev->dev.of_node,
+                               "hsan,experimental-gro-auto-local-tcp");
 
-    if (!of_find_property(pdev->dev.of_node, prop, NULL))
+    if (!automatic && !of_find_property(pdev->dev.of_node, prop, NULL))
         return 0;
+    if (automatic && of_find_property(pdev->dev.of_node, prop, NULL))
+        return -EINVAL;
+    if (!submit && automatic) {
+        unsigned int i;
+
+        if (!of_property_read_bool(pdev->dev.of_node,
+                                  "hsan,experimental-gro-resource-init") ||
+            !state->pub_gro_count_known || state->pub_gro_entries != 4)
+            return -EINVAL;
+        ret = hsan_lsw_shadow_table_reserve_range(&pdev->dev, 0x128, 0, 4);
+        if (ret)
+            return ret;
+        ret = hsan_lsw_shadow_table_reserve_range(&pdev->dev, 0x105, 0, 4);
+        if (ret)
+            return ret;
+        for (i = 0; i < 4; i++)
+            state->gro_auto_ids[i] = U32_MAX;
+        state->gro_auto_requested = true;
+        return 0;
+    }
     if (!submit) {
         if (!of_property_read_bool(pdev->dev.of_node,
                                   "hsan,experimental-gro-resource-init") ||
@@ -1422,7 +1454,8 @@ static int hsan_pfe_gro_flow(struct platform_device *pdev,
         state->gro_flow_prepared = true;
         return 0;
     }
-    if (!state->gro_flow_prepared || !state->gro_resources_ready ||
+    if ((!state->gro_flow_prepared && !state->gro_auto_requested) ||
+        !state->gro_resources_ready ||
         state->napt_partition_commands != 2)
         return -EHOSTDOWN;
     ret = hsan_pfe_fam_fence_guard(state, 12);
@@ -1435,6 +1468,12 @@ static int hsan_pfe_gro_flow(struct platform_device *pdev,
     ret = hsan_lsw_write_verify(0x03000050U, post_partition);
     if (ret)
         return ret;
+    if (automatic) {
+        ret = hsan_lsw_napt_gro_managed_enable();
+        if (!ret)
+            state->gro_auto_ready = true;
+        return ret;
+    }
     ret = hsan_lsw_napt_gro_v4_commit(state->gro_flow_words,
                                     &state->gro_flow_hardware_id);
     if (ret)
@@ -1445,6 +1484,121 @@ static int hsan_pfe_gro_flow(struct platform_device *pdev,
         state->gro_flow_hardware_id);
     return 0;
 }
+
+/* The owner lock pins the PFE state across sleepable control transactions
+ * Automatic and fixed-flow modes are exclusive for the whole boot
+ */
+static struct hsan_pfe_state *hsan_pfe_auto_owner(void)
+{
+    struct hsan_pfe_state *state = hsan_pfe_owner;
+
+    if (!state || state->probe_quarantined || !state->clock_on ||
+        !state->gro_auto_ready || !state->gro_resources_ready)
+        return NULL;
+    return state;
+}
+
+int hsan_lsw_pfe_gro_auto_add(unsigned int slot,
+                             const struct hsan_pfe_gro_v4_tuple *key, u32 *id)
+{
+    struct hsan_pfe_state *state;
+    u8 candidate[40] = { 0 };
+    int ret;
+
+    if (slot >= 4 || !key || !id || !key->sport_host || !key->dport_host)
+        return -EINVAL;
+    *id = U32_MAX;
+    mutex_lock(&hsan_pfe_owner_lock);
+    state = hsan_pfe_auto_owner();
+    if (!state) {
+        ret = -EHOSTDOWN;
+        goto out;
+    }
+    mutex_lock(&state->gro_flow_lock);
+    if (state->gro_auto_ids[slot] != U32_MAX) {
+        ret = -EALREADY;
+        goto unlock_flow;
+    }
+    ret = hsan_pfe_fam_fence_guard(state, 15);
+    if (ret)
+        goto unlock_flow;
+    ret = hsan_pfe_gro_v4_plan(key, 1, 1, slot + 1, state->gro_auto_words[slot]);
+    if (ret)
+        goto unlock_flow;
+    put_unaligned_le32(key->daddr_host, candidate);
+    put_unaligned_le32(key->saddr_host, candidate + 4);
+    put_unaligned_le16(key->dport_host, candidate + 8);
+    put_unaligned_le16(key->sport_host, candidate + 10);
+    candidate[14] = 10U << 3;
+    candidate[15] = 6;
+    put_unaligned_le16(0x0401U, candidate + 20);
+    candidate[29] = 0x20U | ((slot + 1) << 1);
+    ret = hsan_lsw_shadow_table_write(state->owner, 0x105, slot,
+                                      candidate, sizeof(candidate));
+    if (ret)
+        goto unlock_flow;
+    ret = hsan_lsw_napt_gro_managed_add(slot + 1, state->gro_auto_words[slot], id);
+    if (!ret)
+        state->gro_auto_ids[slot] = *id;
+unlock_flow:
+    mutex_unlock(&state->gro_flow_lock);
+out:
+    mutex_unlock(&hsan_pfe_owner_lock);
+    return ret;
+}
+EXPORT_SYMBOL_GPL(hsan_lsw_pfe_gro_auto_add);
+
+int hsan_lsw_pfe_gro_auto_query(unsigned int slot, u32 *data)
+{
+    struct hsan_pfe_state *state;
+    u32 status;
+    int ret;
+
+    if (slot >= 4 || !data)
+        return -EINVAL;
+    *data = 0;
+    mutex_lock(&hsan_pfe_owner_lock);
+    state = hsan_pfe_auto_owner();
+    if (!state) {
+        ret = -EHOSTDOWN;
+        goto out;
+    }
+    mutex_lock(&state->gro_flow_lock);
+    ret = state->gro_auto_ids[slot] == U32_MAX ? -ENOENT :
+          hsan_lsw_napt_gro_v4_snapshot(state->gro_auto_ids[slot], &status, data);
+    mutex_unlock(&state->gro_flow_lock);
+out:
+    mutex_unlock(&hsan_pfe_owner_lock);
+    return ret;
+}
+EXPORT_SYMBOL_GPL(hsan_lsw_pfe_gro_auto_query);
+
+int hsan_lsw_pfe_gro_auto_remove(unsigned int slot)
+{
+    struct hsan_pfe_state *state;
+    int ret;
+
+    if (slot >= 4)
+        return -EINVAL;
+    mutex_lock(&hsan_pfe_owner_lock);
+    state = hsan_pfe_auto_owner();
+    if (!state) {
+        ret = -EHOSTDOWN;
+        goto out;
+    }
+    mutex_lock(&state->gro_flow_lock);
+    ret = hsan_pfe_fam_fence_guard(state, 16);
+    if (!ret)
+        ret = state->gro_auto_ids[slot] == U32_MAX ? -ENOENT :
+              hsan_lsw_napt_gro_v4_remove(state->gro_auto_ids[slot]);
+    if (!ret)
+        state->gro_auto_ids[slot] = U32_MAX;
+    mutex_unlock(&state->gro_flow_lock);
+out:
+    mutex_unlock(&hsan_pfe_owner_lock);
+    return ret;
+}
+EXPORT_SYMBOL_GPL(hsan_lsw_pfe_gro_auto_remove);
 
 /* hi_lsw_pfe.ko port_vlan_write @.text+0x3998..0x39f0,
  * PUB table #7 (id=0x117): address is 0x0b040000 + VID*4.
@@ -2428,8 +2582,7 @@ static int hsan_pfe_prepare_ifc_shadow(struct platform_device *pdev,
             "hsan,experimental-ifc-cpu-path") ||
         !of_property_read_bool(pdev->dev.of_node,
             "hsan,experimental-program-pa-prelude") ||
-        !of_find_property(pdev->dev.of_node,
-            "hsan,experimental-gro-v4-tcp-flow", NULL) ||
+        !hsan_pfe_gro_requested(pdev->dev.of_node) ||
         of_property_read_bool(pdev->dev.of_node,
             "hsan,experimental-ifc-lan1-mac"))
         return -EINVAL;
@@ -3216,8 +3369,7 @@ static int hsan_pfe_port5_gro_opp(struct platform_device *pdev, bool submit)
     unsigned int priority;
     int ret;
 
-    if (!of_find_property(pdev->dev.of_node,
-                         "hsan,experimental-gro-v4-tcp-flow", NULL))
+    if (!hsan_pfe_gro_requested(pdev->dev.of_node))
         return 0;
     if (!of_property_read_bool(pdev->dev.of_node,
                               "hsan,experimental-program-cpu-opp"))

@@ -67,7 +67,7 @@ def build(base_payload, artifacts, helper, diagnostic, output, fam_shadow=False,
           boot_reset=False, arm_fam=False, eqm=False, queue_routing=False,
           pie_reset=False, pie_map=False, pfe_globals=False, pie_acp=False,
           pfe_opp=False, lan1_opp=False, lan1_pub=False, cpu_ifc=False,
-          cpu_diagnostic=False, noncoherent_dma=False, lan1_mirror_cpu=False, eqm_counters=False, rx0_large_buffer=False, opp_port33=False, opp_port4=False, retain_dma_on_down=False, napt_partition=False, gro_resources=False, gro_flow=False, ifc_lan1_mac=False, ifc_lan1_qos=False, gro_tuple=None):
+          cpu_diagnostic=False, noncoherent_dma=False, lan1_mirror_cpu=False, eqm_counters=False, rx0_large_buffer=False, opp_port33=False, opp_port4=False, retain_dma_on_down=False, napt_partition=False, gro_resources=False, gro_flow=False, ifc_lan1_mac=False, ifc_lan1_qos=False, gro_tuple=None, gro_auto=False):
     if arm_fam and not (fam_shadow and boot_reset):
         raise ValueError("FAM hardware init requires CPU staging and cold boot reset")
     if eqm and not arm_fam:
@@ -90,6 +90,8 @@ def build(base_payload, artifacts, helper, diagnostic, output, fam_shadow=False,
         raise ValueError("CPU IFC requires the LAN1 PUB and OPP hardware plans")
     if cpu_diagnostic and not (cpu_ifc and pie_acp):
         raise ValueError("CPU DMA diagnostic requires the complete IFC/OPP/PUB/ACP bootstrap")
+    if gro_auto and (gro_flow or gro_tuple is not None or not gro_resources):
+        raise ValueError("Automatic GRO requires resources and excludes a fixed flow")
     if gro_tuple is not None and (not gro_flow or len(gro_tuple) != 4 or
             any(not 0 <= v <= 0xffffffff for v in gro_tuple[:2]) or
             any(not 1 <= v <= 65535 for v in gro_tuple[2:])):
@@ -98,7 +100,7 @@ def build(base_payload, artifacts, helper, diagnostic, output, fam_shadow=False,
         raise ValueError("GRO test flow requires initialized resources")
     if ifc_lan1_mac and not gro_flow:
         raise ValueError("LAN1 MAC classifier diagnostic requires the restricted GRO flow")
-    if ifc_lan1_qos and (not (gro_flow and cpu_ifc) or ifc_lan1_mac):
+    if ifc_lan1_qos and (not ((gro_flow or gro_auto) and cpu_ifc) or ifc_lan1_mac):
         raise ValueError("LAN1 QoS diagnostic requires the CPU/GRO flow profile and excludes the MAC substitution")
     if gro_resources and not napt_partition:
         raise ValueError("GRO resource initialization requires NAPT partition")
@@ -234,6 +236,9 @@ def build(base_payload, artifacts, helper, diagnostic, output, fam_shadow=False,
             "hsan,observed-l3intf-preimage-words": bytes(32),
             "hsan,observed-gro-nhp-preimage-words": bytes(16),
         })
+    if gro_auto:
+        edits["/lsw_pfe"]["hsan,experimental-gro-auto-local-tcp"] = b""
+        edits["/pie@12080000"]["hsan,experimental-gro-raw-capture"] = b""
     if gro_flow:
         edits["/lsw_pfe"]["hsan,experimental-gro-v4-tcp-flow"] = struct.pack(
             ">4I", *(gro_tuple if gro_tuple is not None else (0xc0a8000a, 0xc0a80001, 18086, 18087)))
@@ -413,6 +418,7 @@ def build(base_payload, artifacts, helper, diagnostic, output, fam_shadow=False,
         "new_kernel": meta(image),
         "preserved_components": ["BL31", "trampoline", "OEM overlays"],
     }
+    pair["gro_auto_requested"] = gro_auto
     pair["board_test"] = "NOT_RUN"
     pair.pop("stored_dtb_sha256", None)
     pair["initrd_end"] = hex(0x88000000 + len(initrd))
@@ -457,6 +463,7 @@ if __name__ == "__main__":
     parser.add_argument("--napt-partition", action="store_true")
     parser.add_argument("--gro-resources", action="store_true")
     parser.add_argument("--gro-flow", action="store_true")
+    parser.add_argument("--gro-auto", action="store_true")
     parser.add_argument("--gro-tuple", nargs=4, type=lambda value: int(value, 0),
                         metavar=("SRC_IP_WORD", "DST_IP_WORD", "SRC_PORT", "DST_PORT"))
     parser.add_argument("--ifc-lan1-mac", action="store_true")
@@ -467,5 +474,5 @@ if __name__ == "__main__":
                    args.eqm, args.queue_routing, args.pie_reset, args.pie_map,
                    args.pfe_globals, args.pie_acp, args.pfe_opp, args.lan1_opp,
                    args.lan1_pub, args.cpu_ifc, args.cpu_diagnostic,
-                   args.noncoherent_dma, args.lan1_mirror_cpu, args.eqm_counters, args.rx0_large_buffer, args.opp_port33, args.opp_port4, args.retain_dma_on_down, args.napt_partition, args.gro_resources, args.gro_flow, args.ifc_lan1_mac, args.ifc_lan1_qos, args.gro_tuple)
+                   args.noncoherent_dma, args.lan1_mirror_cpu, args.eqm_counters, args.rx0_large_buffer, args.opp_port33, args.opp_port4, args.retain_dma_on_down, args.napt_partition, args.gro_resources, args.gro_flow, args.ifc_lan1_mac, args.ifc_lan1_qos, args.gro_tuple, args.gro_auto)
     print(json.dumps({k: result[k] for k in ("initrd", "carrier")}, indent=2))
