@@ -254,6 +254,25 @@ static int hsan_dp_read_pie_channels(struct device_node *node, u32 gro[2])
 	return 0;
 }
 
+static int hsan_dp_make_pie_map_plan(struct platform_device *pdev,
+                                      struct hsan_pie_map_plan *plan,
+                                      u32 start, u32 count, unsigned int cpus)
+{
+    static const char property[] = "hsan,experimental-gro-rx-rotate";
+    u32 rotate;
+    int ret;
+
+    ret = hsan_pie_make_v300_map_plan(plan, start, count, cpus);
+    if (ret || !of_find_property(pdev->dev.of_node, property, NULL))
+        return ret;
+    if (of_property_count_u32_elems(pdev->dev.of_node, property) != 1)
+        return -EINVAL;
+    ret = of_property_read_u32(pdev->dev.of_node, property, &rotate);
+    if (ret)
+        return ret;
+    return hsan_pie_rotate_gro_map(plan, start, count, rotate);
+}
+
 static int hsan_dp_readonly_pie_plan(struct platform_device *pdev)
 {
 	struct hsan_pie_map_plan *plan;
@@ -270,7 +289,7 @@ static int hsan_dp_readonly_pie_plan(struct platform_device *pdev)
 	plan = devm_kzalloc(&pdev->dev, sizeof(*plan), GFP_KERNEL);
 	if (!plan)
 		return -ENOMEM;
-	ret = hsan_pie_make_v300_map_plan(plan, gro[0], gro[1],
+	ret = hsan_dp_make_pie_map_plan(pdev, plan, gro[0], gro[1],
 					 num_online_cpus());
 	if (ret) {
 		dev_err(&pdev->dev,
@@ -1428,7 +1447,7 @@ static int hsan_dp_program_pie_v300_map(struct platform_device *pdev,
         ret = -EAGAIN;
         goto out;
     }
-    ret = hsan_pie_make_v300_map_plan(plan, gro[0], gro[1],
+    ret = hsan_dp_make_pie_map_plan(pdev, plan, gro[0], gro[1],
                                        state->pie_map_expected_cpus);
     if (ret)
         goto out;
@@ -2194,7 +2213,7 @@ static int hsan_dp_preflight_hw_plan(struct platform_device *pdev,
     if (!plan)
         return -ENOMEM;
     state->pie_map_expected_cpus = num_online_cpus();
-    ret = hsan_pie_make_v300_map_plan(plan, gro[0], gro[1],
+    ret = hsan_dp_make_pie_map_plan(pdev, plan, gro[0], gro[1],
                                       state->pie_map_expected_cpus);
     if (!ret) {
         for (i = 0; i < plan->nr_writes; i++) {

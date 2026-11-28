@@ -125,4 +125,35 @@ static int hsan_pie_make_v300_map_plan(struct hsan_pie_map_plan *p,
 	}
 	return 0;
 }
+/* Cold-boot diagnostic permutation within the already owned RX4..7 set
+ * No selector, ordinary RX route, sideband, or DMA geometry is changed
+ */
+static int hsan_pie_rotate_gro_map(struct hsan_pie_map_plan *p,
+                                  u32 gro_start, u32 gro_num, u32 rotate)
+{
+    unsigned int i;
+
+    if (!p || gro_start != 4 || gro_num != 4 || rotate > 3 ||
+        p->nr_slots != 8 || p->nr_writes != 16)
+        return -EINVAL;
+    /* Complete validation before changing even the CPU-only plan */
+    for (i = 0; i < 4; i++) {
+        unsigned int w = 8 + 2 * i;
+
+        if (p->writes[w].logical_csr != HSAN_PIE_MAP_BASE + 4 * (4 + i) ||
+            p->writes[w + 1].logical_csr !=
+                HSAN_PIE_MAP_BASE + 4 * (4 + i) + 0x80 ||
+            p->writes[w + 1].value != U32_MAX ||
+            ((p->writes[w].value >> 28) & 7) != 4 + i ||
+            !(p->writes[w].value & 0x80000000U))
+            return -EINVAL;
+    }
+    for (i = 0; i < 4; i++) {
+        unsigned int w = 8 + 2 * i;
+
+        p->writes[w].value = (p->writes[w].value & ~0x70000000U) |
+                            ((4 + ((i + rotate) % 4)) << 28);
+    }
+    return 0;
+}
 #endif /* HSAN_PIE_MAP_PLAN_H */

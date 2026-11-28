@@ -119,3 +119,6 @@ DHCP/DNS 验证使用 `lan1-dhcp-dns-test.c`，按上述 ARMEL 编译选项生�
 `--gro-auto` 配合 `--gro-resources` 启用本地已建立 IPv4 TCP 连接的自动学习，与 `--gro-flow` 和 `--gro-tuple` 互斥，当前支持无 IP/TCP options 的普通以太网帧，最多四个硬件聚合上下文，容量满时保留普通接收路径，连接退出后撤销并复用上下文，默认关闭
 
 PIE 的只读 `gro_auto_state` 提供学习状态和每流聚合计数，硬件命令出现不确定结果后封锁后续操作，不清除错误锁存或释放 DMA 映射，自动模式不使用固定流的 `gro_flow_remove` 和 `gro_flow_restore` 接口
+
+
+`--gro-rx-rotate 1|2|3` 是配合 `--gro-auto` 与 `--pie-map` 的冷启动接收队列诊断开关，仅置换已归属 RX4～RX7 的目的通道，用于验证不同 GRO 接收队列，不改变普通接收映射或 DMA 布局，省略时沿用原厂映射
