@@ -105,7 +105,7 @@ UDP 验证可用 `-Rounds` 指定回传次数，范围 1..20000，默认 1000
 
 `--gro-tuple SRC_IP_WORD DST_IP_WORD SRC_PORT DST_PORT` 配合 `--gro-flow` 指定该实验流，IPv4 使用网络顺序整数，例如 `0xc0a8000a 0xc0a80001 18186 18187`，PFE 与接收端校验使用同一配置，省略时保留默认测试流
 
-已安装的实验流可由 root 向 `/sys/bus/platform/devices/16100000.lsw_pfe/gro_flow_remove` 写入 `1` 撤销，随后读取同目录 `gro_flow_state` 及 PIE 的 `rx_queue_packets` 检查流状态与接收路径，重复删除会拒绝，重新安装仍要求重新 RAM 启动，删除不释放 DMA 映射或 L3/NHP 资源，也不证明硬件 STOP
+已安装的实验流可由 root 向 `/sys/bus/platform/devices/16100000.lsw_pfe/gro_flow_remove` 写入 `1` 撤销，撤销完成后可向同目录 `gro_flow_restore` 写入 `1` 恢复原配置，使用 `gro_flow_state` 及 PIE 的 `rx_queue_packets` 检查流状态与接收路径，删除或恢复失败后的不确定状态保持封锁，改变流配置仍要求重新 RAM 启动，操作不释放 DMA 映射或 L3/NHP 资源，也不证明硬件 STOP
 
 `--ifc-lan1-mac` 配合 `--gro-flow` 使用通用测试 MAC，仅替换已归属的默认 IFC 行用于入口诊断，默认关闭
 

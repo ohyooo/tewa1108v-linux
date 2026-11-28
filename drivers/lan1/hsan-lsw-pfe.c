@@ -343,6 +343,7 @@ struct hsan_pfe_state {
     bool gro_resources_ready;
     bool gro_flow_prepared;
     bool gro_flow_installed;
+    struct mutex gro_flow_lock;
     u32 gro_flow_words[HSAN_PFE_GRO_WORK_WORDS];
     u32 gro_flow_hardware_id;
     bool mcc_hw_uncertain;
@@ -1269,10 +1270,13 @@ static ssize_t gro_flow_state_show(struct device *dev,
 
     if (!state || !state->gro_flow_installed)
         return -ENODATA;
+    mutex_lock(&state->gro_flow_lock);
     ret = hsan_lsw_napt_gro_v4_snapshot(state->gro_flow_hardware_id,
                                        &status, &data);
-    return sysfs_emit(buf, "result=%d id=%#x status=%#x data=%#x age_code=%u\n",
+    ret = sysfs_emit(buf, "result=%d id=%#x status=%#x data=%#x age_code=%u\n",
                        ret, state->gro_flow_hardware_id, status, data, data & 7);
+    mutex_unlock(&state->gro_flow_lock);
+    return ret;
 }
 static DEVICE_ATTR_RO(gro_flow_state);
 static ssize_t gro_flow_remove_store(struct device *dev,
@@ -1286,12 +1290,37 @@ static ssize_t gro_flow_remove_store(struct device *dev,
         return -EINVAL;
     if (!state || !state->gro_flow_installed)
         return -ENODATA;
+    mutex_lock(&state->gro_flow_lock);
     ret = hsan_pfe_fam_fence_guard(state, 13);
     if (!ret)
         ret = hsan_lsw_napt_gro_v4_remove(state->gro_flow_hardware_id);
+    mutex_unlock(&state->gro_flow_lock);
     return ret ? ret : count;
 }
 static DEVICE_ATTR_WO(gro_flow_remove);
+static ssize_t gro_flow_restore_store(struct device *dev,
+                                     struct device_attribute *attr,
+                                     const char *buf, size_t count)
+{
+    struct hsan_pfe_state *state = dev_get_drvdata(dev);
+    u32 hardware_id;
+    int ret;
+
+    if (!sysfs_streq(buf, "1"))
+        return -EINVAL;
+    if (!state || !state->gro_flow_installed)
+        return -ENODATA;
+    mutex_lock(&state->gro_flow_lock);
+    ret = hsan_pfe_fam_fence_guard(state, 14);
+    if (!ret)
+        ret = hsan_lsw_napt_gro_v4_restore(state->gro_flow_hardware_id,
+                                          &hardware_id);
+    if (!ret)
+        state->gro_flow_hardware_id = hardware_id;
+    mutex_unlock(&state->gro_flow_lock);
+    return ret ? ret : count;
+}
+static DEVICE_ATTR_WO(gro_flow_restore);
 static ssize_t bootstrap_ready_show(struct device *dev,
                                    struct device_attribute *attr, char *buf)
 {
@@ -1338,6 +1367,7 @@ static struct attribute *hsan_pfe_attrs[] = {
     &dev_attr_ifc_hit_counter.attr,
     &dev_attr_gro_flow_state.attr,
     &dev_attr_gro_flow_remove.attr,
+    &dev_attr_gro_flow_restore.attr,
     &dev_attr_bootstrap_ready.attr,
     &dev_attr_ifc_lan1_qos_state.attr,
     NULL,
@@ -3553,6 +3583,7 @@ static int hsan_pfe_probe_locked(struct platform_device *pdev)
 	if (!state)
 		return -ENOMEM;
     state->owner = &pdev->dev;
+    mutex_init(&state->gro_flow_lock);
 	platform_set_drvdata(pdev, state);
 	/* OEM hi_pfe_probe uses clk_prepare + clk_enable before CSR init.
 	 * Enable only on explicit opt-in, and undo on each error/exit.

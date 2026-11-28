@@ -149,6 +149,7 @@ static bool hsan_lsw_napt_gro_attempted;
 static u32 hsan_lsw_napt_gro_id = U32_MAX;
 static bool hsan_lsw_napt_flow_uncertain;
 static bool hsan_lsw_napt_gro_removed;
+static u32 hsan_lsw_napt_gro_words[19];
 static atomic_t hsan_lsw_napt_module_pinned = ATOMIC_INIT(0);
 static bool hsan_lsw_napt_private_span(u32 address, u32 bytes)
 {
@@ -1454,7 +1455,8 @@ EXPORT_SYMBOL_GPL(hsan_lsw_napt_partition_commit);
  * The init latch remains sealed; command readiness comes only from both
  * completed partition commands, never from clearing an uncertainty flag
  */
-int hsan_lsw_napt_gro_v4_commit(const u32 words[19], u32 *hardware_id)
+static int hsan_lsw_napt_gro_v4_submit(const u32 words[19], u32 *hardware_id,
+                                     bool restoring, u32 previous_id)
 {
     static const struct { u32 csr; u8 word; } params[] = {
         {0x030000a8,1}, {0x030000b0,3}, {0x030000ac,2},
@@ -1474,21 +1476,37 @@ int hsan_lsw_napt_gro_v4_commit(const u32 words[19], u32 *hardware_id)
     if (!hardware_id)
         return -EINVAL;
     *hardware_id = U32_MAX;
-    if (!words || words[0] != 0x00010100U || words[1] != 0x04020000U ||
-        words[2] != 0x50000004U || words[12] != 0x00000603U ||
-        words[15] != 0x88000000U)
+    if (!words)
         return -EINVAL;
-    for (i = 0; i < ARRAY_SIZE(zero_words); i++)
-        if (words[zero_words[i]])
-            return -EINVAL;
     if (!READ_ONCE(experimental_allow_lsw_writes))
         return -EACCES;
     mutex_lock(&hsan_lsw_napt_lock);
+    if (words[0] != 0x00010100U || words[1] != 0x04020000U ||
+        words[2] != 0x50000004U || words[12] != 0x00000603U ||
+        words[15] != 0x88000000U) {
+        ret = -EINVAL;
+        goto out;
+    }
+    for (i = 0; i < ARRAY_SIZE(zero_words); i++) {
+        if (words[zero_words[i]]) {
+            ret = -EINVAL;
+            goto out;
+        }
+    }
     if (!hsan_lsw_napt_partition_complete) {
         ret = -EHOSTDOWN;
         goto out;
     }
-    if (hsan_lsw_napt_gro_attempted) {
+    if (hsan_lsw_napt_flow_uncertain) {
+        ret = -EUCLEAN;
+        goto out;
+    }
+    if (restoring && (!hsan_lsw_napt_gro_removed ||
+                      previous_id != hsan_lsw_napt_gro_id)) {
+        ret = -EINVAL;
+        goto out;
+    }
+    if (!restoring && hsan_lsw_napt_gro_attempted) {
         ret = -EALREADY;
         goto out;
     }
@@ -1509,6 +1527,7 @@ int hsan_lsw_napt_gro_v4_commit(const u32 words[19], u32 *hardware_id)
         goto out;
     }
     hsan_lsw_napt_gro_attempted = true;
+    hsan_lsw_napt_flow_uncertain = true;
     for (i = 0; i < ARRAY_SIZE(params); i++) {
         ret = hsan_lsw_write_raw(params[i].csr, words[params[i].word]);
         if (ret)
@@ -1538,11 +1557,29 @@ int hsan_lsw_napt_gro_v4_commit(const u32 words[19], u32 *hardware_id)
     }
     *hardware_id = status & GENMASK(20, 0);
     hsan_lsw_napt_gro_id = *hardware_id;
+    if (!restoring)
+        memcpy(hsan_lsw_napt_gro_words, words, sizeof(hsan_lsw_napt_gro_words));
+    hsan_lsw_napt_gro_removed = false;
+    hsan_lsw_napt_flow_uncertain = false;
 out:
     mutex_unlock(&hsan_lsw_napt_lock);
     return ret;
 }
+int hsan_lsw_napt_gro_v4_commit(const u32 words[19], u32 *hardware_id)
+{
+    return hsan_lsw_napt_gro_v4_submit(words, hardware_id, false, U32_MAX);
+}
 EXPORT_SYMBOL_GPL(hsan_lsw_napt_gro_v4_commit);
+
+/* Only a completed removal permits restoring the immutable original flow
+ * Partial commands, query timeouts and the initial one-shot latch stay sealed
+ */
+int hsan_lsw_napt_gro_v4_restore(u32 previous_id, u32 *hardware_id)
+{
+    return hsan_lsw_napt_gro_v4_submit(hsan_lsw_napt_gro_words, hardware_id,
+                                       true, previous_id);
+}
+EXPORT_SYMBOL_GPL(hsan_lsw_napt_gro_v4_restore);
 
 /* OEM get_age @0x5f70 queries the encoded hardware ID, not a RAM offset
  * This command only snapshots a flow; it neither refreshes nor reinstalls it
